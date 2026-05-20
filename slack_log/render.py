@@ -190,9 +190,11 @@ def format_bytes(n: int) -> str:
         return "?"
     for unit in ["B", "KB", "MB", "GB"]:
         if n < 1024:
-            return f"{n:.1f} {unit}".rstrip("0").rstrip(".")
+            num = f"{n:.1f}".rstrip("0").rstrip(".")
+            return f"{num} {unit}"
         n /= 1024
-    return f"{n:.1f} TB"
+    num = f"{n:.1f}".rstrip("0").rstrip(".")
+    return f"{num} TB"
 
 
 def render_attachments(attachments: list, users: dict, channels: dict) -> list:

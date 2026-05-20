@@ -170,7 +170,17 @@ def write_index(conn: sqlite3.Connection, out_root: Path) -> None:
 
         with open(index_path, "w") as f:
             for ts, first_ts, first_data, is_parent, latest_reply, msg_count in rows:
-                first = json.loads(first_data.decode() if isinstance(first_data, bytes) else first_data)
+                # Same error-recovery contract as split_threads: a single
+                # corrupt row should not stop the whole channel index.
+                if first_data is None:
+                    print(f"⚠️  {cid}/{ts}: index skip (no first_data)", file=sys.stderr)
+                    continue
+                try:
+                    raw = first_data.decode() if isinstance(first_data, bytes) else first_data
+                    first = json.loads(raw)
+                except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                    print(f"⚠️  {cid}/{ts}: index skip corrupt row ({e})", file=sys.stderr)
+                    continue
                 text_preview = make_preview(first.get("text") or "", users, channels_meta)
                 entry = {
                     "thread_ts": ts,
