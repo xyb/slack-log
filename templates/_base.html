@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>{% block title %}slack-log{% endblock %}</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; max-width: 1000px; margin: 20px auto; padding: 0 20px; color: #222; line-height: 1.6; }
+header { padding: 10px 0; border-bottom: 1px solid #eee; margin-bottom: 20px; }
+header a { color: #1968b3; text-decoration: none; margin-right: 12px; }
+header a:hover { text-decoration: underline; }
+.channel-list, .thread-list { list-style: none; padding: 0; }
+.channel-list li, .thread-list li { padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+.thread-list li { padding: 0; }
+.thread-link { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; color: inherit; text-decoration: none; border-radius: 4px; transition: background 0.15s; }
+.thread-link:hover { background: #f4f8fc; }
+.thread-link .thread-body { flex: 1; min-width: 0; }
+.thread-link .author { color: #1968b3; margin-right: 8px; }
+.thread-link .preview { color: #333; }
+.thread-link .row2 { margin-top: 4px; font-size: 0.85em; color: #888; }
+.thread-link .enter { color: #1968b3; margin-left: 8px; opacity: 0; transition: opacity 0.15s; }
+.thread-link:hover .enter { opacity: 1; }
+.sort-tabs { margin: 20px 0; }
+.sort-tabs button { padding: 6px 14px; margin-right: 8px; border: 1px solid #ddd; background: #fff; cursor: pointer; border-radius: 4px; }
+.sort-tabs button.active { background: #1968b3; color: #fff; border-color: #1968b3; }
+.msg { padding: 8px 12px; border-left: 3px solid transparent; margin: 8px 0; transition: background 0.2s; }
+.msg:target { background: #fff3cd; border-left-color: #ffc107; }
+.msg .header { color: #555; font-size: 0.9em; }
+.msg .header .user { color: #1968b3; font-weight: 600; }
+.msg .header .time { color: #999; margin-left: 8px; }
+.msg .header .ref { color: #ccc; font-size: 0.75em; margin-left: 8px; }
+.msg .header .ref a { color: #ccc; text-decoration: none; }
+.msg .header .ref a:hover { color: #1968b3; }
+.msg .text { white-space: pre-wrap; margin-top: 4px; word-wrap: break-word; }
+
+/* mention 胶囊样式 */
+.mention { display: inline-block; padding: 0 6px; border-radius: 3px; font-weight: 500; font-size: 0.95em; }
+.mention-user { background: #ddeaf6; color: #1968b3; }
+.mention-channel { background: #f0e6d2; color: #6b5a32; }
+.mention-broadcast { background: #fef3cd; color: #8a6d3b; }
+.ext-link { color: #1968b3; text-decoration: none; word-break: break-all; }
+.ext-link:hover { text-decoration: underline; }
+.preview .mention { font-size: 0.9em; }
+.msg .reactions { margin-top: 6px; font-size: 0.9em; display: flex; flex-wrap: wrap; gap: 4px; }
+.msg .reactions .reaction { position: relative; display: inline-block; background: #f0f4f8; border: 1px solid transparent; border-radius: 12px; padding: 1px 8px; color: #444; cursor: default; }
+.msg .reactions .reaction:hover { border-color: #1968b3; background: #e5edf5; }
+.reaction-popup { display: none; position: absolute; bottom: calc(100% + 6px); left: 0; background: #fff; border: 1px solid #ddd; padding: 8px 12px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); white-space: nowrap; z-index: 10; min-width: 160px; }
+.reaction:hover .reaction-popup, .reaction:focus .reaction-popup { display: block; }
+.reaction-popup .rp-title { display: block; font-size: 0.85em; color: #888; margin-bottom: 6px; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+.reaction-popup .rp-user { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: 0.9em; color: #222; }
+.reaction-popup .rp-user img { width: 18px; height: 18px; border-radius: 3px; }
+
+/* mrkdwn */
+.msg .text code, .att-text code { background: #f1f3f5; border-radius: 3px; padding: 1px 5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; color: #c7254e; }
+.msg .text blockquote, .att-text blockquote { border-left: 3px solid #ddd; margin: 4px 0; padding: 2px 10px; color: #555; }
+.msg .text strong, .att-text strong { font-weight: 700; }
+.msg .text em, .att-text em { font-style: italic; }
+.msg .text s, .att-text s { color: #999; }
+
+/* attachments (link unfurl 卡片) */
+.attachments { margin-top: 8px; }
+.attachment { border-left: 4px solid #dfe2e6; background: #f8f9fa; padding: 10px 12px; margin-top: 6px; border-radius: 0 4px 4px 0; max-width: 600px; }
+.attachment .att-service, .attachment .att-author { font-size: 0.85em; color: #666; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+.attachment .att-service-icon, .attachment .att-author-icon { width: 16px; height: 16px; border-radius: 3px; }
+.attachment .att-service a, .attachment .att-author a { color: #666; text-decoration: none; }
+.attachment .att-title { font-weight: 600; margin-bottom: 4px; }
+.attachment .att-title a { color: #1968b3; text-decoration: none; }
+.attachment .att-title a:hover { text-decoration: underline; }
+.attachment .att-text { font-size: 0.9em; color: #444; margin-bottom: 6px; white-space: pre-wrap; }
+.attachment .att-image, .attachment .att-thumb { max-width: 100%; max-height: 300px; border-radius: 4px; margin-top: 6px; display: block; }
+.attachment .att-thumb { max-width: 80px; max-height: 80px; }
+.attachment .att-footer { font-size: 0.8em; color: #888; margin-top: 6px; }
+.msg .files { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; }
+.msg .files .file-image { display: inline-flex; flex-direction: column; max-width: 400px; text-decoration: none; color: inherit; }
+.msg .files .file-image img { max-width: 400px; max-height: 400px; border-radius: 6px; border: 1px solid #e5e5e5; display: block; }
+.msg .files .file-image .img-caption { font-size: 0.8em; color: #888; margin-top: 4px; max-width: 400px; word-break: break-all; }
+.msg .files .file-image:hover .img-caption { color: #1968b3; }
+.img-fallback { display: none; flex-direction: row; gap: 12px; align-items: center; padding: 16px 20px; background: #f5f7fa; border: 1px dashed #c5d1de; border-radius: 6px; min-width: 240px; max-width: 400px; color: #555; }
+.img-fallback .ifb-icon { font-size: 28px; flex-shrink: 0; }
+.img-fallback .ifb-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.img-fallback .ifb-name { font-weight: 500; word-break: break-all; color: #333; font-size: 0.9em; }
+.img-fallback .ifb-info { font-size: 0.8em; color: #888; }
+.msg .files .file-link, .msg .files .file-remote { display: inline-block; background: #f5f5f5; padding: 4px 10px; border-radius: 4px; font-size: 0.9em; color: #1968b3; text-decoration: none; }
+.msg .files .file-link:hover, .msg .files .file-remote:hover { background: #e5edf5; }
+.msg .files .file-remote { color: #888; }
+
+/* lightbox 全屏图片浏览 */
+.lightbox-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.92); z-index: 9999; display: none; align-items: center; justify-content: center; }
+.lightbox-overlay.active { display: flex; }
+.lb-img { max-width: 92vw; max-height: 85vh; object-fit: contain; box-shadow: 0 4px 30px rgba(0,0,0,0.6); }
+.lb-close { position: absolute; top: 16px; right: 24px; color: #fff; font-size: 36px; cursor: pointer; line-height: 1; user-select: none; padding: 4px 12px; }
+.lb-close:hover { color: #ccc; }
+.lb-prev, .lb-next { position: absolute; top: 50%; transform: translateY(-50%); color: #fff; font-size: 56px; cursor: pointer; user-select: none; padding: 16px 24px; opacity: 0.6; transition: opacity 0.15s; }
+.lb-prev:hover, .lb-next:hover { opacity: 1; }
+.lb-prev { left: 16px; }
+.lb-next { right: 16px; }
+.lb-caption { position: absolute; bottom: 24px; left: 0; right: 0; color: #ddd; text-align: center; padding: 0 24px; font-size: 0.9em; }
+.lb-counter { position: absolute; top: 20px; left: 30px; color: #ddd; font-size: 0.85em; }
+.parent { background: #f8f9fa; }
+footer { margin: 40px 0 20px; padding-top: 12px; border-top: 1px solid #eee; color: #999; font-size: 0.8em; text-align: center; }
+
+/* 分组标题 */
+h2 { margin-top: 32px; font-size: 1.1em; color: #444; }
+h2 .meta { color: #aaa; font-size: 0.85em; font-weight: normal; }
+
+/* channel/DM/MPIM 列表项 */
+.channel-link { display: flex; align-items: center; padding: 8px 12px; color: inherit; text-decoration: none; border-radius: 4px; gap: 10px; transition: background 0.15s; }
+.channel-link:hover { background: #f4f8fc; }
+.channel-link .cname { flex: 1; color: #1968b3; font-weight: 500; }
+.channel-link .meta { color: #aaa; font-size: 0.85em; }
+.channel-link.channel .cname::before { content: ""; }
+.avatar { width: 36px; height: 36px; border-radius: 6px; flex-shrink: 0; }
+.avatar-placeholder { width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; background: #eee; border-radius: 6px; font-size: 20px; flex-shrink: 0; }
+.avatar-sm { width: 24px; height: 24px; border-radius: 4px; margin-right: -8px; border: 2px solid #fff; }
+.avatar-group { display: inline-flex; padding-right: 8px; min-width: 60px; }
+
+/* 消息头像 */
+.msg { display: flex; gap: 10px; }
+.msg .avatar-msg { width: 36px; height: 36px; border-radius: 4px; flex-shrink: 0; margin-top: 2px; }
+.msg .body { flex: 1; }
+
+dm-list li, .mpim-list li, .channel-list li { padding: 0; border: none; }
+</style>
+</head>
+<body>
+<header>
+  <a href="{% block home %}../../index.html{% endblock %}">slack-log</a>
+  {% block crumbs %}{% endblock %}
+</header>
+{% block body %}{% endblock %}
+<footer>generated by slack-log at {{ generated_at }}</footer>
+
+<script>
+// lightbox：thread 内多图浏览，ESC/点击遮罩关闭，← → 切换
+(function(){
+  const links = document.querySelectorAll('a.file-image');
+  if (!links.length) return;
+
+  // 按 data-lightbox 分组
+  const groups = {};
+  links.forEach(a => {
+    const g = a.dataset.lightbox || 'default';
+    (groups[g] = groups[g] || []).push(a);
+  });
+
+  // 弹层 DOM
+  const overlay = document.createElement('div');
+  overlay.className = 'lightbox-overlay';
+  overlay.innerHTML = '<div class="lb-counter"></div><div class="lb-close">×</div><div class="lb-prev">‹</div><img class="lb-img" alt=""><div class="lb-next">›</div><div class="lb-caption"></div>';
+  document.body.appendChild(overlay);
+
+  const imgEl = overlay.querySelector('.lb-img');
+  const capEl = overlay.querySelector('.lb-caption');
+  const cntEl = overlay.querySelector('.lb-counter');
+  const prevEl = overlay.querySelector('.lb-prev');
+  const nextEl = overlay.querySelector('.lb-next');
+  const closeEl = overlay.querySelector('.lb-close');
+
+  let cur = [], idx = 0;
+  function show() {
+    const a = cur[idx];
+    imgEl.src = a.href;
+    capEl.textContent = a.title || '';
+    cntEl.textContent = cur.length > 1 ? (idx + 1) + ' / ' + cur.length : '';
+    prevEl.style.visibility = idx > 0 ? '' : 'hidden';
+    nextEl.style.visibility = idx < cur.length - 1 ? '' : 'hidden';
+  }
+  function open(g, i) {
+    cur = groups[g]; idx = i;
+    overlay.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    show();
+  }
+  function close() {
+    overlay.classList.remove('active');
+    document.body.style.overflow = '';
+    imgEl.src = '';
+  }
+  function prev() { if (idx > 0) { idx--; show(); } }
+  function next() { if (idx < cur.length - 1) { idx++; show(); } }
+
+  links.forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      const g = a.dataset.lightbox || 'default';
+      open(g, groups[g].indexOf(a));
+    });
+  });
+  closeEl.addEventListener('click', close);
+  prevEl.addEventListener('click', prev);
+  nextEl.addEventListener('click', next);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', e => {
+    if (!overlay.classList.contains('active')) return;
+    if (e.key === 'Escape') close();
+    else if (e.key === 'ArrowLeft') prev();
+    else if (e.key === 'ArrowRight') next();
+  });
+})();
+</script>
+</body>
+</html>

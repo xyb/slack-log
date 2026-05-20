@@ -1,0 +1,457 @@
+#!/usr/bin/env python3
+"""
+data/ → html/ 静态 HTML 渲染（jinja2）
+
+- 每 channel 一个 index.html：thread 列表，两种排序（first_ts / latest_reply_ts）
+- 每 thread 一个 thread.html：IRC log 风格 + 每条消息 <a id="msg-<ts>"> ref id 永久锚点
+- 全局 index.html：channel 列表入口
+
+外部稳定引用格式：html/channels/<cid>/threads/<thread_ts>.html#msg-<ts>
+"""
+
+import argparse
+import html
+import json
+import re
+from datetime import datetime
+from pathlib import Path
+
+import emoji
+from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+
+def emojize(text: str) -> str:
+    """:heart: → ❤️。Slack 自定义 emoji（库里没有的）保留原 shortcode。"""
+    if not text:
+        return ""
+    return emoji.emojize(text, language="alias")
+
+
+def ts_to_human(ts: str) -> str:
+    """Slack ts (unix) → 人类可读时间。"""
+    try:
+        dt = datetime.fromtimestamp(float(ts))
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except (ValueError, OSError):
+        return ts
+
+
+def load_users(data_root: Path) -> dict:
+    p = data_root / "users.json"
+    if not p.exists():
+        return {}
+    return json.loads(p.read_text())
+
+
+def load_channels(data_root: Path) -> dict:
+    p = data_root / "channels.json"
+    if not p.exists():
+        return {}
+    return json.loads(p.read_text())
+
+
+def render_user(uid: str | None, users: dict) -> str:
+    if not uid:
+        return "(unknown)"
+    u = users.get(uid) or {}
+    return u.get("display_name") or u.get("real_name") or u.get("name") or uid
+
+
+def render_channel(cid: str, channels: dict) -> str:
+    c = channels.get(cid) or {}
+    return c.get("name") or cid
+
+
+# Slack 消息文本里的特殊语法解析（参考 Slack message formatting）
+# <@U091...>             → @display_name
+# <@U091...|name>        → @name
+# <#C093...>             → #channel-name
+# <#C093...|name>        → #name
+# <!subteam^S123^...>    → @subteam (略简)
+# <!here> / <!channel> / <!everyone>
+# <http://x.com|label>   → <a href="x.com">label</a>
+# <http://x.com>         → <a href="x.com">x.com</a>
+
+USER_MENTION = re.compile(r"<@([UW][A-Z0-9]+)(?:\|([^>]+))?>")
+CHANNEL_MENTION = re.compile(r"<#([C][A-Z0-9]+)(?:\|([^>]+))?>")
+LINK_WITH_LABEL = re.compile(r"<(https?://[^|>\s]+)\|([^>]+)>")
+LINK_BARE = re.compile(r"<(https?://[^>\s]+)>")
+BROADCAST = re.compile(r"<!(here|channel|everyone)>")
+
+
+def apply_mrkdwn(text: str) -> str:
+    """Slack mrkdwn → HTML (subset)."""
+    if not text:
+        return ""
+    # inline code 先（防内部 * 被改）
+    text = re.sub(r"`([^`\n]+)`", lambda m: f"<code>{m.group(1)}</code>", text)
+    # 块 quote
+    text = re.sub(r"(?m)^&gt;\s*(.+)$", r"<blockquote>\1</blockquote>", text)
+    text = re.sub(r"(?m)^>\s*(.+)$", r"<blockquote>\1</blockquote>", text)
+    # bold *xxx*
+    text = re.sub(
+        r"(?<![a-zA-Z0-9_*])\*([^\s*][^*\n]*?[^\s*]|\S)\*(?![a-zA-Z0-9_*])",
+        r"<strong>\1</strong>",
+        text,
+    )
+    # italic _xxx_ 避开 snake_case
+    text = re.sub(
+        r"(?<![a-zA-Z0-9_])_([^\s_][^_\n]*?[^\s_]|\S)_(?![a-zA-Z0-9_])",
+        r"<em>\1</em>",
+        text,
+    )
+    # strike ~xxx~
+    text = re.sub(
+        r"(?<![a-zA-Z0-9~])~([^\s~][^~\n]*?[^\s~]|\S)~(?![a-zA-Z0-9~])",
+        r"<s>\1</s>",
+        text,
+    )
+    return text
+
+
+def expand_mentions(text: str, users: dict, channels: dict) -> str:
+    """Slack 特殊语法 → HTML 片段。
+
+    Slack API 返回的 text 里普通的 `<`/`>`/`&` 已被 escape 成 entity，所以原始
+    text 里以 `<` 开头的只可能是 Slack 自己的特殊语法（mention/link/channel/broadcast）。
+    我们替换这些特殊语法为 HTML span/a，其他字符原样保留。模板里用 `|safe` 输出。
+    """
+    if not text:
+        return ""
+
+    def user_repl(m):
+        uid, alias = m.group(1), m.group(2)
+        if alias:
+            name = alias
+        else:
+            u = users.get(uid) or {}
+            name = u.get("display_name") or u.get("real_name") or u.get("name") or uid
+        return f'<span class="mention mention-user">@{html.escape(name)}</span>'
+
+    def chan_repl(m):
+        cid, alias = m.group(1), m.group(2)
+        if alias:
+            name = alias
+        else:
+            c = channels.get(cid) or {}
+            name = c.get("name") or cid
+        return f'<span class="mention mention-channel">#{html.escape(name)}</span>'
+
+    def link_with_label_repl(m):
+        url, label = m.group(1), m.group(2)
+        return f'<a class="ext-link" href="{html.escape(url)}" target="_blank" rel="noopener">{html.escape(label)}</a>'
+
+    def link_bare_repl(m):
+        url = m.group(1)
+        url_esc = html.escape(url)
+        return f'<a class="ext-link" href="{url_esc}" target="_blank" rel="noopener">{url_esc}</a>'
+
+    text = USER_MENTION.sub(user_repl, text)
+    text = CHANNEL_MENTION.sub(chan_repl, text)
+    text = LINK_WITH_LABEL.sub(link_with_label_repl, text)
+    text = LINK_BARE.sub(link_bare_repl, text)
+    text = BROADCAST.sub(lambda m: f'<span class="mention mention-broadcast">@{m.group(1)}</span>', text)
+    text = apply_mrkdwn(text)
+    text = emojize(text)
+    return text
+
+
+def expand_for_preview(text: str, users: dict, channels: dict) -> str:
+    """Preview 在父 `<a>` 内部（channel index 的 thread-link 是 `<a>`），
+    所以不能输出 `<a>` (HTML 不允许 `<a>` 嵌套 `<a>` —— 浏览器自动闭合外层
+    破坏布局)。外链降级成 `<span>`，其他跟 expand_mentions 一样。
+    """
+    if not text:
+        return ""
+    # 复用 expand_mentions 但跑完后把生成的 ext-link <a> 替换成 <span>
+    rendered = expand_mentions(text, users, channels)
+    rendered = re.sub(
+        r'<a class="ext-link"[^>]*>([^<]*)</a>',
+        r'<span class="ext-link">\1</span>',
+        rendered,
+    )
+    return rendered
+
+
+def load_thread(thread_jsonl: Path) -> list[dict]:
+    msgs = []
+    with open(thread_jsonl) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                msgs.append(json.loads(line))
+    return msgs
+
+
+def format_bytes(n: int) -> str:
+    if not n:
+        return "?"
+    for unit in ["B", "KB", "MB", "GB"]:
+        if n < 1024:
+            return f"{n:.1f} {unit}".rstrip("0").rstrip(".")
+        n /= 1024
+    return f"{n:.1f} TB"
+
+
+def render_attachments(attachments: list, users: dict, channels: dict) -> list:
+    """Slack 链接 unfurl 卡片 → 渲染数据。
+
+    一条 attachment 含 service_name/title/text/image_url/thumb_url/color 等，
+    Slack 把 https://github.com/... 这种链接自动 unfurl 成卡片附在消息后。
+    """
+    out = []
+    for a in attachments:
+        if not isinstance(a, dict):
+            continue
+        color = a.get("color")
+        if color and not color.startswith("#"):
+            color = "#" + color
+        out.append({
+            "color": color or "#dfe2e6",
+            "service_name": a.get("service_name"),
+            "service_icon": a.get("service_icon"),
+            "title": a.get("title"),
+            "title_link": a.get("title_link") or a.get("from_url") or a.get("original_url"),
+            "text_html": expand_mentions(a.get("text") or "", users, channels),
+            "image_url": a.get("image_url"),
+            "thumb_url": a.get("thumb_url"),
+            "author_name": a.get("author_name"),
+            "author_icon": a.get("author_icon"),
+            "author_link": a.get("author_link"),
+            "footer": a.get("footer"),
+            "from_url": a.get("from_url") or a.get("original_url"),
+        })
+    return out
+
+
+def render_files(files: list, channel_dir: Path) -> list:
+    """每个文件返回 dict: kind=image|link|remote。
+
+    本地已下载文件（attach.py 输出 data/channels/<cid>/attachments/<id>.<ext>）
+    优先用相对路径引用（HTML 也在 channels/<cid> 下，符号链接到 attachments）。
+    未下载就指向 Slack permalink（点击跳 Slack 拿）。
+    """
+    att_dir = channel_dir / "attachments"
+    out = []
+    for f in files:
+        fid = f.get("id")
+        if not fid:
+            continue
+        name = f.get("name") or fid
+        mimetype = f.get("mimetype", "")
+        size = f.get("size", 0)
+        ft = f.get("filetype") or "bin"
+        local_file = att_dir / f"{fid}.{ft}"
+
+        permalink = f.get("permalink") or f.get("url_private_download") or f.get("url_private") or ""
+        size_human = format_bytes(size)
+
+        if local_file.exists():
+            rel = f"../attachments/{fid}.{ft}"
+            entry = {
+                "name": name, "mimetype": mimetype, "size": size, "size_human": size_human,
+                "rel": rel, "fid": fid, "ext": ft, "permalink": permalink,
+                "kind": "image" if mimetype.startswith("image/") else "link",
+            }
+            out.append(entry)
+        else:
+            out.append({
+                "name": name, "mimetype": mimetype, "size": size, "size_human": size_human,
+                "kind": "remote", "href": permalink, "fid": fid,
+            })
+    return out
+
+
+def render_channel_html(channel_dir: Path, html_root: Path, users: dict, channels: dict, env: Environment, generated_at: str) -> None:
+    cid = channel_dir.name
+    channel_name = render_channel(cid, channels)
+    out_dir = html_root / "channels" / cid
+    threads_out = out_dir / "threads"
+    threads_out.mkdir(parents=True, exist_ok=True)
+
+    # symlink data 的 attachments 到 html，让 HTML 用相对路径 ../attachments/ 引用
+    data_att = channel_dir / "attachments"
+    html_att = out_dir / "attachments"
+    if data_att.exists() and not html_att.exists():
+        html_att.symlink_to(data_att.resolve())
+
+    # 拉 index.jsonl 拿 thread metadata
+    index_path = channel_dir / "index.jsonl"
+    threads_meta = []
+    if index_path.exists():
+        with open(index_path) as f:
+            for line in f:
+                threads_meta.append(json.loads(line))
+
+    # 渲染每个 thread.html
+    for tm in threads_meta:
+        ttp = channel_dir / "threads" / f"{tm['thread_ts']}.jsonl"
+        if not ttp.exists():
+            continue
+        msgs = load_thread(ttp)
+        # 给每条消息加 ref_id (= msg-<ts>) + 人类可读字段
+        for m in msgs:
+            m["_ref_id"] = f"msg-{m['ts']}"
+            m["_human_time"] = ts_to_human(m["ts"])
+            m["_user_display"] = render_user(m.get("user"), users)
+            m["_text_rendered"] = expand_mentions(m.get("text") or "", users, channels)
+            uobj = users.get(m.get("user")) or {}
+            m["_avatar"] = uobj.get("image_48") or uobj.get("image_72")
+            m["_reactions_rendered"] = [
+                {
+                    "emoji": emojize(f":{r['name']}:"),
+                    "name": r.get("name"),
+                    "count": r.get("count", 0),
+                    "users": [
+                        {
+                            "uid": uid,
+                            "display": render_user(uid, users),
+                            "avatar": (users.get(uid) or {}).get("image_24") or (users.get(uid) or {}).get("image_48"),
+                        }
+                        for uid in (r.get("users") or [])
+                    ],
+                }
+                for r in (m.get("reactions") or [])
+            ]
+            m["_files_rendered"] = render_files(m.get("files") or [], channel_dir)
+            m["_attachments_rendered"] = render_attachments(m.get("attachments") or [], users, channels)
+        html = env.get_template("thread.html").render(
+            channel_id=cid,
+            channel_name=channel_name,
+            thread_meta=tm,
+            messages=msgs,
+            generated_at=generated_at,
+        )
+        (threads_out / f"{tm['thread_ts']}.html").write_text(html, encoding="utf-8")
+
+    # channel index.html：列表 + 两种排序（数据全塞进，前端 JS 切排序）
+    for tm in threads_meta:
+        tm["_first_human"] = ts_to_human(tm["first_ts"])
+        tm["_latest_human"] = ts_to_human(tm["latest_reply_ts"])
+        tm["_first_user_display"] = render_user(tm.get("first_user"), users)
+        tm["_preview_rendered"] = expand_for_preview(tm.get("first_text_preview") or "", users, channels)
+        uobj = users.get(tm.get("first_user")) or {}
+        tm["_first_user_avatar"] = uobj.get("image_48") or uobj.get("image_72")
+
+    html = env.get_template("channel_index.html").render(
+        channel_id=cid,
+        channel_name=channel_name,
+        threads=threads_meta,
+        generated_at=generated_at,
+    )
+    (out_dir / "index.html").write_text(html, encoding="utf-8")
+
+
+def render_global(data_root: Path, html_root: Path, channels_meta: dict, users: dict, env: Environment, generated_at: str, include: set | None = None) -> None:
+    """全局 index.html：分三组（channel / DM / MPIM）+ DM 显示对方头像。
+
+    include 集合过滤要显示的类型，默认 {channel, dm, mpim} 全部。
+    """
+    include = include or {"channel", "dm", "mpim"}
+    real_channels, dms, mpims = [], [], []
+
+    for cdir in (data_root / "channels").iterdir():
+        if not cdir.is_dir():
+            continue
+        cid = cdir.name
+        kind = kind_of(cid, channels_meta)
+        if kind not in include:
+            continue
+        n_threads = len(list((cdir / "threads").glob("*.jsonl"))) if (cdir / "threads").exists() else 0
+        cinfo = channels_meta.get(cid) or {}
+        item = {
+            "id": cid,
+            "name": cinfo.get("name") or cid,
+            "thread_count": n_threads,
+        }
+        if cinfo.get("is_im"):
+            # DM：拼对方 avatar
+            other_uid = cinfo.get("other_uid")
+            other_user = users.get(other_uid) if other_uid else None
+            item["avatar"] = (other_user or {}).get("image_72") if other_user else None
+            dms.append(item)
+        elif cinfo.get("is_mpim"):
+            # MPIM：拼成员 avatar 列表
+            members = cinfo.get("members") or []
+            item["avatars"] = [
+                (users.get(m) or {}).get("image_48")
+                for m in members[:5]
+                if (users.get(m) or {}).get("image_48")
+            ]
+            mpims.append(item)
+        else:
+            real_channels.append(item)
+
+    real_channels.sort(key=lambda c: c["name"])
+    dms.sort(key=lambda c: c["thread_count"], reverse=True)  # DM 按活跃度排
+    mpims.sort(key=lambda c: c["thread_count"], reverse=True)
+
+    html = env.get_template("global_index.html").render(
+        channels=real_channels,
+        dms=dms,
+        mpims=mpims,
+        generated_at=generated_at,
+    )
+    (html_root / "index.html").write_text(html, encoding="utf-8")
+
+
+def kind_of(cid: str, channels_meta: dict) -> str:
+    """channel / dm / mpim"""
+    c = channels_meta.get(cid) or {}
+    if c.get("is_im"):
+        return "dm"
+    if c.get("is_mpim"):
+        return "mpim"
+    return "channel"
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--data", type=Path, default=Path("./data"))
+    ap.add_argument("--html", type=Path, default=Path("./html"))
+    ap.add_argument("--templates", type=Path, default=Path(__file__).parent / "templates")
+    ap.add_argument(
+        "--include",
+        default="channel,dm,mpim",
+        help="逗号分隔，选 channel / dm / mpim 任意组合（默认全部）。例：--include=channel 只渲染真频道",
+    )
+    args = ap.parse_args()
+
+    include = {s.strip() for s in args.include.split(",") if s.strip()}
+    valid = {"channel", "dm", "mpim"}
+    if not include.issubset(valid):
+        raise SystemExit(f"--include 只接受 {valid} 的子集，收到 {include}")
+
+    env = Environment(
+        loader=FileSystemLoader(str(args.templates)),
+        autoescape=select_autoescape(["html"]),
+    )
+
+    users = load_users(args.data)
+    channels_meta = load_channels(args.data)
+    args.html.mkdir(exist_ok=True)
+    (args.html / "channels").mkdir(exist_ok=True)
+
+    generated_at = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z (UTC%z)")
+
+    skipped = 0
+    for cdir in (args.data / "channels").iterdir():
+        if not cdir.is_dir():
+            continue
+        kind = kind_of(cdir.name, channels_meta)
+        if kind not in include:
+            skipped += 1
+            continue
+        name = render_channel(cdir.name, channels_meta)
+        print(f"rendering {cdir.name} ({name}, kind={kind})...")
+        render_channel_html(cdir, args.html, users, channels_meta, env, generated_at)
+
+    render_global(args.data, args.html, channels_meta, users, env, generated_at, include)
+    print(f"\n✅ html/ 生成完毕：{args.html}")
+    print(f"   include={sorted(include)} / 跳过 {skipped} 个不在 include 的")
+    print(f"   generated at: {generated_at}")
+    print(f"   入口：{args.html / 'index.html'}")
+
+
+if __name__ == "__main__":
+    main()

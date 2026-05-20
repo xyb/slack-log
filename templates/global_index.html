@@ -1,0 +1,53 @@
+{% extends "_base.html" %}
+{% block title %}slack-log{% endblock %}
+{% block home %}index.html{% endblock %}
+{% block body %}
+<h1>slack-log</h1>
+<p>所有归档的 Slack 频道、DM、群聊入口。每个 thread 一个独立页面，URL 含永久 ref id 可外部引用。</p>
+
+{% if channels %}
+<h2>📢 Channels <span class="meta">({{ channels | length }})</span></h2>
+<ul class="channel-list">
+  {% for c in channels %}
+  <li>
+    <a href="channels/{{ c.id }}/index.html" class="channel-link channel">
+      <span class="cname">#{{ c.name }}</span>
+      <span class="meta">{{ c.thread_count }} threads</span>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if dms %}
+<h2>💬 Direct Messages <span class="meta">({{ dms | length }})</span></h2>
+<ul class="dm-list">
+  {% for d in dms %}
+  <li>
+    <a href="channels/{{ d.id }}/index.html" class="channel-link dm">
+      {% if d.avatar %}<img class="avatar" src="{{ d.avatar }}" alt="" />{% else %}<span class="avatar-placeholder">👤</span>{% endif %}
+      <span class="cname">{{ d.name }}</span>
+      <span class="meta">{{ d.thread_count }} threads</span>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if mpims %}
+<h2>👥 Group Messages <span class="meta">({{ mpims | length }})</span></h2>
+<ul class="mpim-list">
+  {% for m in mpims %}
+  <li>
+    <a href="channels/{{ m.id }}/index.html" class="channel-link mpim">
+      <span class="avatar-group">
+        {% for av in m.avatars %}<img class="avatar-sm" src="{{ av }}" alt="" />{% endfor %}
+      </span>
+      <span class="cname">{{ m.name }}</span>
+      <span class="meta">{{ m.thread_count }} threads</span>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}
