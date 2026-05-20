@@ -72,7 +72,8 @@ open http://localhost:8765/
 
 ```sh
 make update              # full incremental: fetch → split → attach → render
-make fetch               # slackdump archive --resume only
+make fetch               # slackdump archive --resume only (cheap, additive)
+make reconcile           # re-fetch last 90 days to pick up edits/deletes (weekly)
 make rebuild-html        # template/CSS changes only — keeps data/, fastest path
 make render-channels     # render only public/private channels (skip DMs/MPIMs)
 make render-dms          # only DMs
@@ -130,6 +131,10 @@ to slackdump (AGPLv3, runs as a child process — does not affect slack-log's MI
 - **HTML rendering is HTML-aware about `<a>` nesting.** Slack mrkdwn URLs inside channel-index
   preview snippets are downgraded to `<span>` to avoid the HTML spec's "no nested `<a>`" rule
   silently breaking layout.
+- **Edits and deletes are reconciled by re-fetch, not by event.** Slack does not push
+  `message_changed` / `message_deleted` over the REST archive path. `make reconcile` re-fetches
+  the last `RECONCILE_DAYS` (default 90) into a new session; splitter dedupes by
+  `MAX(LOAD_DTTM)` so the latest version of every message wins. Run weekly.
 
 ## Roadmap
 
@@ -137,7 +142,7 @@ to slackdump (AGPLv3, runs as a child process — does not affect slack-log's MI
 - [x] v0.2 full workspace archive
 - [x] v0.3 static HTML with ref ids and sort tabs
 - [x] v0.4 fine-grained rendering (mentions / mrkdwn / unfurls / reactions popup / lightbox / fallbacks)
-- [ ] v0.5 edit/delete reconciliation (periodic re-fetch of active threads)
+- [x] v0.5 edit/delete reconciliation via `make reconcile` (90-day re-fetch + dedup by LOAD_DTTM)
 - [ ] v0.6 single-command `make update` polish (progress bar, error recovery)
 - [ ] v1.0 scheduled runs (launchd / cron)
 - [ ] v2.0 service mode (REST API, search index, multi-user)

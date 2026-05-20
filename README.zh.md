@@ -67,7 +67,8 @@ open http://localhost:8765/
 
 ```sh
 make update              # 完整增量：fetch → split → attach → render
-make fetch               # 只跑 slackdump archive --resume
+make fetch               # 只跑 slackdump archive --resume（便宜，加性）
+make reconcile           # 重拉最近 90 天兜底编辑/删除（每周跑一次）
 make rebuild-html        # 改了模板/CSS 后用这个 — 保留 data/，最快路径
 make render-channels     # 只渲染真频道（跳过 DM 和 MPIM）
 make render-dms          # 只渲染 DM
@@ -123,6 +124,9 @@ subprocess 调用 — 不污染 slack-log 的 MIT 协议）。
 - **`.meta.json` 永远生成**。大 zip 和视频只存 metadata，原 Slack URL 保留，未来想下能下。
 - **HTML 渲染懂 `<a>` 嵌套规则**。Slack mrkdwn URL 出现在 channel index 的 preview 段时
   会降级成 `<span>`，避开 HTML 规范禁止 `<a>` 嵌套 `<a>` 导致的隐式闭合问题。
+- **编辑/删除靠重拉兜底，不靠 event**。Slack 不通过 REST archive 路径推送
+  `message_changed` / `message_deleted`。`make reconcile` 重拉最近 `RECONCILE_DAYS`（默认 90）
+  天进新 session，splitter 按 `MAX(LOAD_DTTM)` dedup，最新版本胜出。每周跑一次。
 
 ## 路线图
 
@@ -130,7 +134,7 @@ subprocess 调用 — 不污染 slack-log 的 MIT 协议）。
 - [x] v0.2 全 workspace archive
 - [x] v0.3 静态 HTML（ref id + 排序）
 - [x] v0.4 精细化渲染（mention / mrkdwn / unfurl / reactions popup / lightbox / fallback）
-- [ ] v0.5 编辑 / 删除兜底（周期性重拉活跃 thread）
+- [x] v0.5 编辑/删除兜底 `make reconcile`（90 天重拉 + LOAD_DTTM dedup）
 - [ ] v0.6 一键 `make update` 收口（进度条 + 错误恢复）
 - [ ] v1.0 定时任务（launchd / cron）
 - [ ] v2.0 服务化（REST API + 搜索索引 + 多用户）

@@ -8,11 +8,12 @@
 # "Attachments are precious" principle: image downloads are slow, so HTML
 # rebuilds must preserve data/. Only `make clean-all` removes data/.
 
-.PHONY: help update fetch split attach render rebuild-html render-channels render-dms render-mpims clean-html clean-all
+.PHONY: help update fetch reconcile split attach render rebuild-html render-channels render-dms render-mpims clean-html clean-all
 
 help:
 	@echo "make update              full incremental: slackdump -> splitter -> attach -> render"
-	@echo "make fetch               only run slackdump archive --resume"
+	@echo "make fetch               only run slackdump archive --resume (cheap, additive)"
+	@echo "make reconcile           re-fetch last 90 days to pick up edits/deletes, then split + render"
 	@echo "make split               SQLite -> jsonl + users.json + channels.json"
 	@echo "make attach              walk jsonl files, download attachments by mime/size policy"
 	@echo "make render              jsonl -> HTML (jinja2 + ref id + lightbox, all kinds)"
@@ -27,6 +28,20 @@ update: fetch split attach render
 
 fetch:
 	cd raw && slackdump archive -o . --resume -files=false
+
+# Weekly reconcile: pick up message edits and deletions that --resume cannot
+# detect (Slack does not push message_changed / message_deleted over the REST
+# archive path). Re-fetches the last 90 days into a NEW slackdump session;
+# splitter then dedupes by MAX(LOAD_DTTM) so jsonl/HTML reflect the latest
+# version of every message. Same time budget as a full fetch on 90 days.
+RECONCILE_DAYS ?= 90
+reconcile:
+	cd raw && slackdump archive -o . -files=false -member-only \
+	    -time-from=$$(python3 -c "from datetime import datetime, timedelta; print((datetime.now() - timedelta(days=$(RECONCILE_DAYS))).strftime('%Y-%m-%dT00:00:00'))") \
+	    -chan-types=public_channel,private_channel,im,mpim
+	python3 splitter.py raw/slackdump.sqlite -o ./data
+	python3 attach.py ./data
+	rm -rf html && python3 render.py
 
 split:
 	python3 splitter.py raw/slackdump.sqlite -o ./data
