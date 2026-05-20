@@ -109,11 +109,13 @@ subprocess 调用 — 不污染 slack-log 的 MIT 协议）。
 
 | 路径 | 说明 |
 |---|---|
-| `splitter.py` | `slackdump.sqlite` → 每 thread 一份 JSONL + `users.json` + `channels.json` |
-| `attach.py` | 扫 JSONL 的 files 字段，按 mime/size 策略差异化下载，每个文件都生成 `.meta.json` |
-| `render.py` | JSONL → 静态 HTML，解析 mention / mrkdwn，构建 reaction popup 和 unfurl 卡片 |
-| `templates/` | `_base.html`（CSS + lightbox JS）+ `global_index` / `channel_index` / `thread.html` |
-| `Makefile` | 构建 target（`update` / `fetch` / `rebuild-html` / `render-channels`...） |
+| `slack_log/splitter.py` | `slackdump.sqlite` → 每 thread 一份 JSONL + `users.json` + `channels.json` |
+| `slack_log/attach.py` | 扫 JSONL 的 files 字段，按 mime/size 策略差异化下载，每个文件都生成 `.meta.json` |
+| `slack_log/render.py` | JSONL → 静态 HTML，解析 mention / mrkdwn，构建 reaction popup 和 unfurl 卡片 |
+| `slack_log/templates/` | `_base.html`（CSS + lightbox JS）+ `global_index` / `channel_index` / `thread.html` |
+| `tests/` | pytest 测试套件（splitter / attach / render 错误恢复测试） |
+| `pyproject.toml` | Package 元信息、依赖、console scripts、pytest 配置 |
+| `Makefile` | 构建 target（`update` / `fetch` / `reconcile` / `rebuild-html` / `render-channels` / `test`...） |
 
 ## 设计原则
 
@@ -135,7 +137,7 @@ subprocess 调用 — 不污染 slack-log 的 MIT 协议）。
 - [x] v0.3 静态 HTML（ref id + 排序）
 - [x] v0.4 精细化渲染（mention / mrkdwn / unfurl / reactions popup / lightbox / fallback）
 - [x] v0.5 编辑/删除兜底 `make reconcile`（90 天重拉 + LOAD_DTTM dedup）
-- [ ] v0.6 一键 `make update` 收口（进度条 + 错误恢复）
+- [x] v0.6 进度条（tqdm）+ 错误恢复（单元素失败不阻塞整体）+ pytest 套件 + package layout
 - [ ] v1.0 定时任务（launchd / cron）
 - [ ] v2.0 服务化（REST API + 搜索索引 + 多用户）
 

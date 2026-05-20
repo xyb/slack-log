@@ -13,11 +13,13 @@ import argparse
 import html
 import json
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import emoji
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from tqdm import tqdm
 
 
 def emojize(text: str) -> str:
@@ -283,12 +285,16 @@ def render_channel_html(channel_dir: Path, html_root: Path, users: dict, channel
             for line in f:
                 threads_meta.append(json.loads(line))
 
-    # 渲染每个 thread.html
+    # 渲染每个 thread.html — 单 thread 失败不影响其他 thread / channel index
     for tm in threads_meta:
         ttp = channel_dir / "threads" / f"{tm['thread_ts']}.jsonl"
         if not ttp.exists():
             continue
-        msgs = load_thread(ttp)
+        try:
+            msgs = load_thread(ttp)
+        except Exception as e:
+            print(f"⚠️  {cid}/{tm['thread_ts']}: load failed ({type(e).__name__}: {e}) — skip", file=sys.stderr)
+            continue
         # 给每条消息加 ref_id (= msg-<ts>) + 人类可读字段
         for m in msgs:
             m["_ref_id"] = f"msg-{m['ts']}"
@@ -315,14 +321,18 @@ def render_channel_html(channel_dir: Path, html_root: Path, users: dict, channel
             ]
             m["_files_rendered"] = render_files(m.get("files") or [], channel_dir)
             m["_attachments_rendered"] = render_attachments(m.get("attachments") or [], users, channels)
-        html = env.get_template("thread.html").render(
-            channel_id=cid,
-            channel_name=channel_name,
-            thread_meta=tm,
-            messages=msgs,
-            generated_at=generated_at,
-        )
-        (threads_out / f"{tm['thread_ts']}.html").write_text(html, encoding="utf-8")
+        try:
+            html = env.get_template("thread.html").render(
+                channel_id=cid,
+                channel_name=channel_name,
+                thread_meta=tm,
+                messages=msgs,
+                generated_at=generated_at,
+            )
+            (threads_out / f"{tm['thread_ts']}.html").write_text(html, encoding="utf-8")
+        except Exception as e:
+            print(f"⚠️  {cid}/{tm['thread_ts']}: render failed ({type(e).__name__}: {e}) — skip", file=sys.stderr)
+            continue
 
     # channel index.html：列表 + 两种排序（数据全塞进，前端 JS 切排序）
     for tm in threads_meta:
@@ -434,16 +444,14 @@ def main():
 
     generated_at = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z (UTC%z)")
 
-    skipped = 0
-    for cdir in (args.data / "channels").iterdir():
-        if not cdir.is_dir():
-            continue
-        kind = kind_of(cdir.name, channels_meta)
-        if kind not in include:
-            skipped += 1
-            continue
-        name = render_channel(cdir.name, channels_meta)
-        print(f"rendering {cdir.name} ({name}, kind={kind})...")
+    candidates = [
+        c for c in (args.data / "channels").iterdir()
+        if c.is_dir() and kind_of(c.name, channels_meta) in include
+    ]
+    skipped = sum(1 for c in (args.data / "channels").iterdir()
+                  if c.is_dir() and kind_of(c.name, channels_meta) not in include)
+
+    for cdir in tqdm(candidates, desc="render", unit="ch"):
         render_channel_html(cdir, args.html, users, channels_meta, env, generated_at)
 
     render_global(args.data, args.html, channels_meta, users, env, generated_at, include)

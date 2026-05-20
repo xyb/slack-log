@@ -8,7 +8,11 @@
 # "Attachments are precious" principle: image downloads are slow, so HTML
 # rebuilds must preserve data/. Only `make clean-all` removes data/.
 
-.PHONY: help update fetch reconcile split attach render rebuild-html render-channels render-dms render-mpims clean-html clean-all
+PY ?= python3
+
+.PHONY: help update fetch reconcile split attach render rebuild-html \
+        render-channels render-dms render-mpims clean-html clean-all \
+        test
 
 help:
 	@echo "make update              full incremental: slackdump -> splitter -> attach -> render"
@@ -21,6 +25,7 @@ help:
 	@echo "make render-dms          only render DMs"
 	@echo "make render-mpims        only render MPIMs"
 	@echo "make rebuild-html        rebuild all HTML (preserves data/, fastest path)"
+	@echo "make test                run pytest"
 	@echo "make clean-html          remove html/"
 	@echo "make clean-all           ⚠ remove data/ + html/ (forces full re-split + re-download)"
 
@@ -29,42 +34,41 @@ update: fetch split attach render
 fetch:
 	cd raw && slackdump archive -o . --resume -files=false
 
-# Weekly reconcile: pick up message edits and deletions that --resume cannot
-# detect (Slack does not push message_changed / message_deleted over the REST
-# archive path). Re-fetches the last 90 days into a NEW slackdump session;
-# splitter then dedupes by MAX(LOAD_DTTM) so jsonl/HTML reflect the latest
-# version of every message. Same time budget as a full fetch on 90 days.
+# Weekly reconcile: pick up message edits and deletions. See README.
 RECONCILE_DAYS ?= 90
 reconcile:
 	cd raw && slackdump archive -o . -files=false -member-only \
-	    -time-from=$$(python3 -c "from datetime import datetime, timedelta; print((datetime.now() - timedelta(days=$(RECONCILE_DAYS))).strftime('%Y-%m-%dT00:00:00'))") \
+	    -time-from=$$($(PY) -c "from datetime import datetime, timedelta; print((datetime.now() - timedelta(days=$(RECONCILE_DAYS))).strftime('%Y-%m-%dT00:00:00'))") \
 	    -chan-types=public_channel,private_channel,im,mpim
-	python3 splitter.py raw/slackdump.sqlite -o ./data
-	python3 attach.py ./data
-	rm -rf html && python3 render.py
+	$(PY) -m slack_log.splitter raw/slackdump.sqlite -o ./data
+	$(PY) -m slack_log.attach ./data
+	rm -rf html && $(PY) -m slack_log.render
 
 split:
-	python3 splitter.py raw/slackdump.sqlite -o ./data
+	$(PY) -m slack_log.splitter raw/slackdump.sqlite -o ./data
 
 attach:
-	python3 attach.py ./data
+	$(PY) -m slack_log.attach ./data
 
 render:
 	rm -rf html
-	python3 render.py
+	$(PY) -m slack_log.render
 
 render-channels: clean-html
-	python3 render.py --include=channel
+	$(PY) -m slack_log.render --include=channel
 
 render-dms: clean-html
-	python3 render.py --include=dm
+	$(PY) -m slack_log.render --include=dm
 
 render-mpims: clean-html
-	python3 render.py --include=mpim
+	$(PY) -m slack_log.render --include=mpim
 
 # Most common: after template/CSS/render.py changes
 rebuild-html: clean-html
-	python3 render.py
+	$(PY) -m slack_log.render
+
+test:
+	$(PY) -m pytest
 
 clean-html:
 	rm -rf html

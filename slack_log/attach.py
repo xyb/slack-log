@@ -16,6 +16,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from tqdm import tqdm
+
 # (mimetype 前缀, 最大字节)
 DOWNLOAD_RULES = [
     ("image/", 10 * 1024 * 1024),       # 图片 <10MB 下载
@@ -119,7 +121,15 @@ def process_channel(channel_dir: Path, xoxc: str, xoxd: str) -> dict:
                         stats["meta_only"] += 1
                         continue
 
-                    if download_file(url, dst, xoxc, xoxd):
+                    # Wrap the download call: any unexpected exception (SSL,
+                    # disk full, ConnectionReset, etc. that download_file's
+                    # inner try/except doesn't cover) must not abort the loop.
+                    try:
+                        ok = download_file(url, dst, xoxc, xoxd)
+                    except Exception as e:
+                        print(f"  ❌ {fid}: unexpected {type(e).__name__}: {e}")
+                        ok = False
+                    if ok:
                         meta["_downloaded"] = True
                         meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
                         stats["downloaded"] += 1
@@ -138,12 +148,13 @@ def main():
     xoxc, xoxd = load_token()
 
     channels_root = args.data_root / "channels"
-    for cdir in channels_root.iterdir():
-        if not cdir.is_dir():
-            continue
-        print(f"=== {cdir.name} ===")
+    channel_dirs = [c for c in channels_root.iterdir() if c.is_dir()]
+    totals = {"downloaded": 0, "meta_only": 0, "failed": 0}
+    for cdir in tqdm(channel_dirs, desc="channels", unit="ch"):
         stats = process_channel(cdir, xoxc, xoxd)
-        print(f"  downloaded={stats['downloaded']} meta_only={stats['meta_only']} failed={stats['failed']}")
+        for k in totals:
+            totals[k] += stats[k]
+    print(f"✅ done — downloaded={totals['downloaded']} meta_only={totals['meta_only']} failed={totals['failed']}")
 
 
 if __name__ == "__main__":

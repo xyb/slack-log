@@ -9,7 +9,10 @@ import argparse
 import json
 import re
 import sqlite3
+import sys
 from pathlib import Path
+
+from tqdm import tqdm
 
 
 # 剥掉 Slack 特殊语法（<@U..>, <#C..>, <url>, <!here> 等），保留人类可读字符
@@ -56,7 +59,7 @@ def split_threads(conn: sqlite3.Connection, out_root: Path) -> dict:
     stats = {}
     channels = [r[0] for r in conn.execute("SELECT DISTINCT CHANNEL_ID FROM MESSAGE")]
 
-    for cid in channels:
+    for cid in tqdm(channels, desc="split", unit="ch"):
         threads_dir = out_root / "channels" / cid / "threads"
         threads_dir.mkdir(parents=True, exist_ok=True)
 
@@ -92,12 +95,22 @@ def split_threads(conn: sqlite3.Connection, out_root: Path) -> dict:
                 """,
                 (cid, ts, ts),
             ).fetchall()
-            with open(threads_dir / f"{ts}.jsonl", "w") as f:
-                for (data,) in rows:
+            # Decode each row; skip ones with corrupt DATA blobs so a single
+            # bad message can't take down the whole thread (or whole splitter).
+            parsed = []
+            for (data,) in rows:
+                try:
                     if isinstance(data, bytes):
                         data = data.decode()
-                    # 确保是 valid JSON 单行
-                    obj = json.loads(data)
+                    parsed.append(json.loads(data))
+                except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                    print(f"⚠️  {cid}/{ts}: skip corrupt row ({e})", file=sys.stderr)
+            if not parsed:
+                # All rows in this thread were corrupt → skip writing a stub.
+                print(f"⚠️  {cid}/{ts}: no valid messages, skip thread", file=sys.stderr)
+                continue
+            with open(threads_dir / f"{ts}.jsonl", "w") as f:
+                for obj in parsed:
                     f.write(json.dumps(obj, ensure_ascii=False) + "\n")
 
         stats[cid] = len(thread_anchors)

@@ -114,11 +114,13 @@ to slackdump (AGPLv3, runs as a child process — does not affect slack-log's MI
 
 | Path | Notes |
 |---|---|
-| `splitter.py` | `slackdump.sqlite` → per-thread JSONL + `users.json` + `channels.json` |
-| `attach.py` | Walks JSONL, downloads attachments by mime/size policy, writes `.meta.json` for every file (downloaded or not) |
-| `render.py` | JSONL → static HTML. Resolves mentions, parses mrkdwn, builds reaction popups, unfurl cards |
-| `templates/` | `_base.html` (CSS + lightbox JS) + `global_index` / `channel_index` / `thread.html` |
-| `Makefile` | Build targets (`update`, `fetch`, `rebuild-html`, `render-channels`…) |
+| `slack_log/splitter.py` | `slackdump.sqlite` → per-thread JSONL + `users.json` + `channels.json` |
+| `slack_log/attach.py` | Walks JSONL, downloads attachments by mime/size policy, writes `.meta.json` for every file (downloaded or not) |
+| `slack_log/render.py` | JSONL → static HTML. Resolves mentions, parses mrkdwn, builds reaction popups, unfurl cards |
+| `slack_log/templates/` | `_base.html` (CSS + lightbox JS) + `global_index` / `channel_index` / `thread.html` |
+| `tests/` | pytest suite (error-recovery tests for splitter / attach / render) |
+| `pyproject.toml` | Package metadata, dependencies, console scripts, pytest config |
+| `Makefile` | Build targets (`update`, `fetch`, `reconcile`, `rebuild-html`, `render-channels`, `test`…) |
 
 ## Design notes
 
@@ -143,7 +145,7 @@ to slackdump (AGPLv3, runs as a child process — does not affect slack-log's MI
 - [x] v0.3 static HTML with ref ids and sort tabs
 - [x] v0.4 fine-grained rendering (mentions / mrkdwn / unfurls / reactions popup / lightbox / fallbacks)
 - [x] v0.5 edit/delete reconciliation via `make reconcile` (90-day re-fetch + dedup by LOAD_DTTM)
-- [ ] v0.6 single-command `make update` polish (progress bar, error recovery)
+- [x] v0.6 progress bars (tqdm) + per-element error recovery + pytest suite + package layout
 - [ ] v1.0 scheduled runs (launchd / cron)
 - [ ] v2.0 service mode (REST API, search index, multi-user)
 
