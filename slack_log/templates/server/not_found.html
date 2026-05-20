@@ -1,0 +1,26 @@
+{% extends "_base.html" %}
+{% block title %}404 — slack-log{% endblock %}
+{% block home %}/{% endblock %}
+{% block search_href %}/search{% endblock %}
+{% block body %}
+<div style="text-align: center; margin-top: 60px;">
+  <div style="font-size: 64px; color: var(--text-faint); line-height: 1;">404</div>
+  <h1 style="margin-top: 12px; font-size: 1.3em; color: var(--quote-fg);" data-i18n="nf_h1">Page not found</h1>
+  <p style="color: var(--text-muted); margin-top: 8px;">
+    {% if detail %}<code style="color: var(--text-muted);">{{ detail }}</code>{% else %}<span data-i18n="nf_hint">The link may be stale or rewritten</span>{% endif %}
+  </p>
+
+  <form method="get" action="/search" style="margin-top: 32px;">
+    <input type="text" name="q" data-i18n-placeholder="nf_placeholder" placeholder="search with keywords" autofocus
+           style="width: 320px; padding: 8px 12px; font-size: 15px; border: 1px solid var(--border-mid); background: var(--bg); color: var(--text); border-radius: 4px;">
+    <button type="submit" data-i18n="search_btn"
+            style="padding: 8px 18px; font-size: 15px; background: var(--link); color: #fff; border: none; border-radius: 4px; cursor: pointer;">
+      Search
+    </button>
+  </form>
+
+  <p style="margin-top: 24px;">
+    <a href="/" style="color: var(--link);" data-i18n="nf_back">← Back to home</a>
+  </p>
+</div>
+{% endblock %}

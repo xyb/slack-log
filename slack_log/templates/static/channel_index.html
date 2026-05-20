@@ -1,0 +1,57 @@
+{% extends "_base.html" %}
+{% block title %}#{{ channel_name }} - slack-log{% endblock %}
+{% block home %}../../index.html{% endblock %}
+{% block crumbs %} / <strong>#{{ channel_name }}</strong> <span class="meta">({{ channel_id }})</span>{% endblock %}
+{% block body %}
+<h1>#{{ channel_name }}</h1>
+<p>{{ threads | length }} <span data-i18n="ch_threads_unit">threads</span></p>
+
+<div class="sort-tabs">
+  <button class="active" data-sort="latest" data-i18n="sort_latest">Latest reply</button>
+  <button data-sort="first" data-i18n="sort_first">First posted</button>
+</div>
+
+<ul class="thread-list" id="thread-list">
+  {% for t in threads %}
+  <li data-first="{{ t.first_ts }}" data-latest="{{ t.latest_reply_ts }}">
+    <a href="threads/{{ t.thread_ts }}.html" class="thread-link">
+      {% if t._first_user_avatar %}<img class="avatar" src="{{ t._first_user_avatar }}" alt="" />{% else %}<span class="avatar-placeholder">👤</span>{% endif %}
+      <div class="thread-body">
+        <div class="row1">
+          <strong class="author">{{ t._first_user_display }}</strong>
+          <span class="preview">{{ t._preview_rendered | safe }}</span>
+        </div>
+        <div class="row2 meta">
+          <span data-i18n="ch_first_at">first</span> {{ t._first_human }}
+          {% if t.reply_count %}· <span data-i18n="ch_latest_reply">latest reply</span> {{ t._latest_human }} · 💬 {{ t.reply_count }}<span data-i18n="ch_reply_unit">replies</span>{% endif %}
+          {% if t.has_files %}· 📎{% endif %}
+          <span class="enter" data-i18n="ch_enter">open thread →</span>
+        </div>
+      </div>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+
+<script>
+const list = document.getElementById('thread-list');
+const items = Array.from(list.children);
+function sortBy(key) {
+  const sorted = items.slice().sort((a, b) => {
+    const av = parseFloat(a.dataset[key]);
+    const bv = parseFloat(b.dataset[key]);
+    return bv - av;  // desc
+  });
+  list.innerHTML = '';
+  sorted.forEach(li => list.appendChild(li));
+}
+document.querySelectorAll('.sort-tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.sort-tabs button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    sortBy(btn.dataset.sort);
+  });
+});
+sortBy('latest');
+</script>
+{% endblock %}

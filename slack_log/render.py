@@ -301,10 +301,11 @@ def render_channel_html(channel_dir: Path, html_root: Path, users: dict, channel
         for m in msgs:
             m["_ref_id"] = f"msg-{m['ts']}"
             m["_human_time"] = ts_to_human(m["ts"])
-            m["_user_display"] = render_user(m.get("user"), users)
+            from slack_log.splitter import resolve_author
+            display, avatar = resolve_author(m, users)
+            m["_user_display"] = display
+            m["_avatar"] = avatar
             m["_text_rendered"] = expand_mentions(m.get("text") or "", users, channels)
-            uobj = users.get(m.get("user")) or {}
-            m["_avatar"] = uobj.get("image_48") or uobj.get("image_72")
             m["_reactions_rendered"] = [
                 {
                     "emoji": emojize(f":{r['name']}:"),
@@ -340,10 +341,13 @@ def render_channel_html(channel_dir: Path, html_root: Path, users: dict, channel
     for tm in threads_meta:
         tm["_first_human"] = ts_to_human(tm["first_ts"])
         tm["_latest_human"] = ts_to_human(tm["latest_reply_ts"])
-        tm["_first_user_display"] = render_user(tm.get("first_user"), users)
+        # Prefer splitter-resolved bot-aware fields; legacy index.jsonl fall back to first_user.
+        tm["_first_user_display"] = tm.get("first_author_display") or render_user(tm.get("first_user"), users)
+        tm["_first_user_avatar"] = tm.get("first_author_avatar")
+        if not tm["_first_user_avatar"] and tm.get("first_user"):
+            uobj = users.get(tm["first_user"]) or {}
+            tm["_first_user_avatar"] = uobj.get("image_48") or uobj.get("image_72")
         tm["_preview_rendered"] = expand_for_preview(tm.get("first_text_preview") or "", users, channels)
-        uobj = users.get(tm.get("first_user")) or {}
-        tm["_first_user_avatar"] = uobj.get("image_48") or uobj.get("image_72")
 
     html = env.get_template("channel_index.html").render(
         channel_id=cid,
@@ -422,6 +426,8 @@ def main():
     ap.add_argument("--data", type=Path, default=Path("./data"))
     ap.add_argument("--html", type=Path, default=Path("./html"))
     ap.add_argument("--templates", type=Path, default=Path(__file__).parent / "templates")
+    ap.add_argument("--flavor", choices=("server", "static"), default="server",
+                    help="server: no-suffix absolute URLs (FastAPI). static: relative .html links (http.server).")
     ap.add_argument(
         "--include",
         default="channel,dm,mpim",
@@ -434,8 +440,16 @@ def main():
     if not include.issubset(valid):
         raise SystemExit(f"--include 只接受 {valid} 的子集，收到 {include}")
 
+    # Pick template flavor:
+    #   --flavor server (default) → no-suffix absolute URLs, for the v0.7 FastAPI server
+    #   --flavor static           → relative .html links, for `python3 -m http.server`
+    templates_root = args.templates
+    flavor = args.flavor
+    if (templates_root / flavor).is_dir():
+        templates_root = templates_root / flavor
+
     env = Environment(
-        loader=FileSystemLoader(str(args.templates)),
+        loader=FileSystemLoader(str(templates_root)),
         autoescape=select_autoescape(["html"]),
     )
 
@@ -445,6 +459,12 @@ def main():
     (args.html / "channels").mkdir(exist_ok=True)
 
     generated_at = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z (UTC%z)")
+    fetched_at = ""
+    for cand in (Path("raw/slackdump.sqlite"), args.data / "users.json"):
+        if cand.exists():
+            fetched_at = datetime.fromtimestamp(cand.stat().st_mtime).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z (UTC%z)")
+            break
+    env.globals["fetched_at"] = fetched_at
 
     candidates = [
         c for c in (args.data / "channels").iterdir()

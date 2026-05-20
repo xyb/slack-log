@@ -102,3 +102,70 @@ def test_main_with_include_filter(minimal_data: Path, tmp_path: Path, monkeypatc
     # Global index also drops the channel section
     global_index = (html / "index.html").read_text()
     assert "📢 Channels" not in global_index
+
+
+def test_static_html_links_relative_with_html_suffix(minimal_data: Path, tmp_path: Path, monkeypatch):
+    """Static-mode render must produce links a pure `python -m http.server` can serve:
+    .html suffix on threads + relative paths from each page back to the index."""
+    html = tmp_path / "html"
+    templates = Path(render.__file__).parent / "templates"
+
+    monkeypatch.setattr(sys, "argv", [
+        "render.py", "--data", str(minimal_data), "--html", str(html),
+        "--templates", str(templates), "--flavor", "static",
+    ])
+    render.main()
+
+    global_index = (html / "index.html").read_text()
+    # Channel link is relative + .html (so http.server can serve it directly).
+    assert 'href="channels/C001/index.html"' in global_index
+    # No server-only routes leaked in.
+    assert "/search" not in global_index
+    assert "/user/" not in global_index
+
+    channel_index = (html / "channels" / "C001" / "index.html").read_text()
+    assert 'href="threads/1700000000.000001.html"' in channel_index
+    assert 'href="../../index.html"' in channel_index  # crumbs/home
+
+    thread_html = (html / "channels" / "C001" / "threads" / "1700000000.000001.html").read_text()
+    assert 'href="../index.html"' in thread_html       # crumbs back to channel
+    assert 'href="../../../index.html"' in thread_html # home block
+    # Static thread should NOT carry the server-only /user/<uid> anchor.
+    assert "/user/" not in thread_html
+
+
+def test_static_site_self_contained(minimal_data: Path, tmp_path: Path, monkeypatch):
+    """Every relative href produced by render.main() must resolve to a real file."""
+    import re
+    html = tmp_path / "html"
+    templates = Path(render.__file__).parent / "templates"
+
+    monkeypatch.setattr(sys, "argv", [
+        "render.py", "--data", str(minimal_data), "--html", str(html),
+        "--templates", str(templates), "--flavor", "static",
+    ])
+    render.main()
+
+    href_re = re.compile(r'href="([^"#?]+)"')
+    pages = list(html.rglob("*.html"))
+    assert pages, "render produced no pages"
+    for page in pages:
+        body = page.read_text()
+        for href in href_re.findall(body):
+            if href.startswith(("http://", "https://", "/", "mailto:", "#")):
+                continue
+            target = (page.parent / href).resolve()
+            assert target.exists(), f"{page.relative_to(html)} → broken link {href!r} → {target}"
+
+
+def test_footer_includes_fetched_and_generated(minimal_data: Path, tmp_path: Path, monkeypatch):
+    html = tmp_path / "html"
+    templates = Path(render.__file__).parent / "templates"
+    monkeypatch.setattr(sys, "argv", [
+        "render.py", "--data", str(minimal_data), "--html", str(html),
+        "--templates", str(templates),
+    ])
+    render.main()
+
+    body = (html / "index.html").read_text()
+    assert "数据抓取" in body and "页面生成" in body

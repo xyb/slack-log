@@ -3,10 +3,10 @@
 {% block home %}index.html{% endblock %}
 {% block body %}
 <h1>slack-log</h1>
-<p>所有归档的 Slack 频道、DM、群聊入口。每个 thread 一个独立页面，URL 含永久 ref id 可外部引用。</p>
 
 {% if channels %}
 <h2>📢 Channels <span class="meta">({{ channels | length }})</span></h2>
+<p class="section-intro" style="color: var(--text-muted); font-size: 0.9em; margin: 0 0 8px;" data-i18n="section_channels_intro">Public / private channels. Each thread gets its own page; URLs carry a permanent ref id for external citation.</p>
 <ul class="channel-list">
   {% for c in channels %}
   <li>
@@ -21,6 +21,7 @@
 
 {% if dms %}
 <h2>💬 Direct Messages <span class="meta">({{ dms | length }})</span></h2>
+<p class="section-intro" style="color: var(--text-muted); font-size: 0.9em; margin: 0 0 8px;" data-i18n="section_dms_intro">Direct messages, grouped by the other person.</p>
 <ul class="dm-list">
   {% for d in dms %}
   <li>
@@ -36,6 +37,7 @@
 
 {% if mpims %}
 <h2>👥 Group Messages <span class="meta">({{ mpims | length }})</span></h2>
+<p class="section-intro" style="color: var(--text-muted); font-size: 0.9em; margin: 0 0 8px;" data-i18n="section_mpims_intro">Multi-person group DMs.</p>
 <ul class="mpim-list">
   {% for m in mpims %}
   <li>

@@ -1,0 +1,106 @@
+{% extends "_base.html" %}
+{% block title %}thread {{ thread_meta.thread_ts }} - #{{ channel_name }}{% endblock %}
+{% block home %}../../../index.html{% endblock %}
+{% block crumbs %} / <a href="../index.html">#{{ channel_name }}</a> / <strong>{{ thread_meta.thread_ts }}</strong>{% endblock %}
+{% block body %}
+<h1><span data-i18n="{% if thread_meta.is_thread %}th_thread{% else %}th_message{% endif %}">{% if thread_meta.is_thread %}🧵 thread{% else %}💬 message{% endif %}</span></h1>
+<p class="meta">
+  {% if thread_meta.is_thread %}{{ messages | length }}<span data-i18n="th_msgs_unit">messages</span> · {{ thread_meta.reply_count }} <span data-i18n="th_replies_unit">replies</span>{% endif %}
+</p>
+
+<div class="thread">
+{% for m in messages %}
+<div class="msg {% if loop.first and thread_meta.is_thread %}parent{% endif %}" id="{{ m._ref_id }}">
+  
+  {% if m._avatar %}<img class="avatar-msg" src="{{ m._avatar }}" alt="" />{% else %}<span class="avatar-placeholder" style="width: 36px; height: 36px;">👤</span>{% endif %}
+  
+  <div class="body">
+    <div class="header">
+      <span class="user">{{ m._user_display }}</span>
+      <span class="time">{{ m._human_time }}</span>
+      <span class="ref"><a href="#{{ m._ref_id }}" data-i18n-title="th_perma" title="permalink">#{{ m.ts }}</a></span>
+      {% if m.edited %}<span class="meta" data-i18n="th_edited">(edited)</span>{% endif %}
+    </div>
+    <div class="text">{{ m._text_rendered | safe }}</div>
+
+    {% if m._reactions_rendered %}
+    <div class="reactions">
+      {% for r in m._reactions_rendered %}
+      <span class="reaction" tabindex="0">
+        {{ r.emoji }} {{ r.count }}
+        {% if r.users %}
+        <span class="reaction-popup">
+          <span class="rp-title">:{{ r.name }}: <span data-i18n="rp_from">from</span> {{ r.count }}<span data-i18n="rp_people"></span></span>
+          {% for u in r.users %}
+          <span class="rp-user">
+            {% if u.avatar %}<img src="{{ u.avatar }}" alt="" />{% endif %}
+            {{ u.display }}
+          </span>
+          {% endfor %}
+        </span>
+        {% endif %}
+      </span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if m._attachments_rendered %}
+    <div class="attachments">
+      {% for a in m._attachments_rendered %}
+      <div class="attachment" style="border-left-color: {{ a.color }}">
+        {% if a.service_name or a.service_icon %}
+        <div class="att-service">
+          {% if a.service_icon %}<img class="att-service-icon" src="{{ a.service_icon }}" alt="" />{% endif %}
+          {% if a.from_url %}<a href="{{ a.from_url }}" target="_blank" rel="noopener">{{ a.service_name or a.from_url }}</a>{% else %}{{ a.service_name }}{% endif %}
+        </div>
+        {% endif %}
+        {% if a.author_name %}
+        <div class="att-author">
+          {% if a.author_icon %}<img class="att-author-icon" src="{{ a.author_icon }}" alt="" />{% endif %}
+          {% if a.author_link %}<a href="{{ a.author_link }}" target="_blank" rel="noopener">{{ a.author_name }}</a>{% else %}{{ a.author_name }}{% endif %}
+        </div>
+        {% endif %}
+        {% if a.title %}
+        <div class="att-title">
+          {% if a.title_link %}<a href="{{ a.title_link }}" target="_blank" rel="noopener">{{ a.title }}</a>{% else %}{{ a.title }}{% endif %}
+        </div>
+        {% endif %}
+        {% if a.text_html %}<div class="att-text">{{ a.text_html | safe }}</div>{% endif %}
+        {% if a.image_url %}<img class="att-image" src="{{ a.image_url }}" loading="lazy" />
+        {% elif a.thumb_url %}<img class="att-thumb" src="{{ a.thumb_url }}" loading="lazy" />{% endif %}
+        {% if a.footer %}<div class="att-footer">{{ a.footer }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if m._files_rendered %}
+    <div class="files">
+      {% for f in m._files_rendered %}
+        {% if f.kind == 'image' %}
+        <a class="file-image" href="{{ f.rel }}" data-lightbox="thread-{{ thread_meta.thread_ts }}" title="{{ f.name }} · {{ f.size_human }}">
+          <img src="{{ f.rel }}" alt="{{ f.fid }}" loading="lazy"
+               onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+          <span class="img-fallback" style="display:none">
+            <span class="ifb-icon">🖼️</span>
+            <span class="ifb-meta">
+              <span class="ifb-name">{{ f.name }}</span>
+              <span class="ifb-info">{{ f.size_human }}{% if f.mimetype %} · {{ f.mimetype }}{% endif %}</span>
+              <span class="ifb-info" data-i18n="img_fail">image failed to load — open in Slack</span>
+            </span>
+          </span>
+          <span class="img-caption">{{ f.name }} · {{ f.size_human }}</span>
+        </a>
+        {% elif f.kind == 'link' %}
+        <a class="file-link" href="{{ f.rel }}" target="_blank" title="{{ f.mimetype }} · {{ f.size_human }}">📎 {{ f.name }} <span class="meta">{{ f.size_human }}</span></a>
+        {% else %}
+        <a class="file-remote" href="{{ f.href }}" target="_blank" rel="noopener" data-i18n-title="file_remote_title" title="not downloaded locally — opens in Slack">🌐 {{ f.name }} <span class="meta">{{ f.size_human }} · remote</span></a>
+        {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+</div>
+{% endblock %}

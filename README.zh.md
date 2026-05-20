@@ -167,8 +167,7 @@ subprocess 调用 — 不污染 slack-log 的 MIT 协议）。
 - [x] v0.4 精细化渲染（mention / mrkdwn / unfurl / reactions popup / lightbox / fallback）
 - [x] v0.5 编辑/删除兜底 `make reconcile`（90 天重拉 + LOAD_DTTM dedup）
 - [x] v0.6 进度条（tqdm）+ 错误恢复（单元素失败不阻塞整体）+ pytest 套件 + package layout
-- [ ] v1.0 定时任务（launchd / cron）
-- [ ] v2.0 服务化（REST API + 搜索索引 + 多用户）
+- [ ] v0.7 web 服务 —— HTTP 浏览 + 全文检索，设计为部署到服务器
 
 ## 致谢
 

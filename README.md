@@ -177,8 +177,7 @@ to slackdump (AGPLv3, runs as a child process — does not affect slack-log's MI
 - [x] v0.4 fine-grained rendering (mentions / mrkdwn / unfurls / reactions popup / lightbox / fallbacks)
 - [x] v0.5 edit/delete reconciliation via `make reconcile` (90-day re-fetch + dedup by LOAD_DTTM)
 - [x] v0.6 progress bars (tqdm) + per-element error recovery + pytest suite + package layout
-- [ ] v1.0 scheduled runs (launchd / cron)
-- [ ] v2.0 service mode (REST API, search index, multi-user)
+- [ ] v0.7 web service — HTTP browsing + full-text search, designed for server deployment
 
 ## Acknowledgements
 

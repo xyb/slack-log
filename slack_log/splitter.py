@@ -24,6 +24,56 @@ _LINK_BARE_RE = re.compile(r"<(https?://[^>\s]+)>")
 _BROADCAST_RE = re.compile(r"<!(here|channel|everyone)>")
 
 
+def _users_lookup(users: dict, key: str | None) -> dict:
+    return users.get(key) if key else None or {}
+
+
+def resolve_author(msg: dict, users: dict) -> tuple[str, str | None]:
+    """Display name + avatar for a message, with bot-message fallbacks.
+
+    Priority:
+      1. msg.user → users.json
+      2. msg.bot_profile.{name, icons}  (embedded in Slack API payload)
+      3. msg.username  (legacy bot field)
+      4. msg.attachments[0].{author_name, service_name, footer}
+      5. msg.bot_id  (last-resort, beats "(unknown)")
+    """
+    # 1. real user id
+    uid = msg.get("user")
+    if uid and (u := users.get(uid)):
+        name = u.get("display_name") or u.get("real_name") or u.get("name") or uid
+        return name, u.get("image_48") or u.get("image_72")
+
+    # 2. embedded bot_profile in the message
+    bp = msg.get("bot_profile") or {}
+    if bp.get("name"):
+        icons = bp.get("icons") or {}
+        return bp["name"], icons.get("image_48") or icons.get("image_72")
+
+    # 3. bot id resolved through users.json (we seed bot entries from bot_add events)
+    bid = msg.get("bot_id")
+    if bid and (b := users.get(bid)):
+        name = b.get("display_name") or b.get("real_name") or b.get("name") or bid
+        return name, b.get("image_48") or b.get("image_72")
+
+    # 4. legacy username field
+    if msg.get("username"):
+        return msg["username"], None
+
+    # 5. attachment author / service
+    for a in (msg.get("attachments") or [])[:1]:
+        for key in ("author_name", "service_name", "footer"):
+            if a.get(key):
+                return a[key], a.get("author_icon") or a.get("service_icon")
+
+    # 6. last-resort identifier so it's not "(unknown)"
+    if bid:
+        return f"bot:{bid}", None
+    if uid:
+        return uid, None
+    return "(unknown)", None
+
+
 def make_preview(text: str, users: dict | None = None, channels: dict | None = None, max_len: int = 100) -> str:
     """剥 Slack 特殊语法 + 截 100 字。mention 解析 display_name（如有 users dict）。"""
     if not text:
@@ -182,10 +232,14 @@ def write_index(conn: sqlite3.Connection, out_root: Path) -> None:
                     print(f"⚠️  {cid}/{ts}: index skip corrupt row ({e})", file=sys.stderr)
                     continue
                 text_preview = make_preview(first.get("text") or "", users, channels_meta)
+                # Bot messages may have no .user — resolve via bot_profile / attachments.
+                first_author_display, first_author_avatar = resolve_author(first, users)
                 entry = {
                     "thread_ts": ts,
                     "first_ts": first_ts,
                     "first_user": first.get("user"),
+                    "first_author_display": first_author_display,
+                    "first_author_avatar": first_author_avatar,
                     "first_text_preview": text_preview,
                     "latest_reply_ts": latest_reply if latest_reply and latest_reply != "0000000000.000000" else first_ts,
                     "reply_count": first.get("reply_count", 0),
@@ -218,6 +272,44 @@ def write_users_and_channels(conn: sqlite3.Connection, out_root: Path) -> None:
             "image_72": profile.get("image_72"),
             "image_192": profile.get("image_192"),
         }
+    # Augment with bot identities discovered in MESSAGE blobs:
+    #   1. bot_add events carry "<https://.../services/B...|Name>" — parse those.
+    #   2. Any embedded bot_profile (name + icons) is also a useful source.
+    # Slack's S_USER table doesn't track these per-integration bots, so the
+    # channel index and search would otherwise label them as "(unknown)".
+    bot_add_re = re.compile(r"/services/(B[A-Z0-9]+)\|([^>]+)>")
+    for (data,) in conn.execute("SELECT DATA FROM MESSAGE"):
+        try:
+            m = json.loads(data.decode() if isinstance(data, bytes) else data)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            continue
+        # Only seed a bot entry when we actually have a name — otherwise we'd
+        # plant a None-only placeholder that blocks later (named) sources from
+        # filling it in.
+        bp = m.get("bot_profile") or {}
+        bp_name = bp.get("name")
+        bid = bp.get("id") or m.get("bot_id")
+        if bid and bp_name and bid not in users:
+            icons = bp.get("icons") or {}
+            users[bid] = {
+                "name": bp_name, "real_name": bp_name, "display_name": bp_name,
+                "is_bot": True,
+                "image_48": icons.get("image_48"),
+                "image_72": icons.get("image_72"),
+            }
+        if m.get("subtype") == "bot_add":
+            mm = bot_add_re.search(m.get("text") or "")
+            if mm:
+                bid2, name = mm.group(1), mm.group(2)
+                # Overwrite any prior nameless placeholder for this bot.
+                existing = users.get(bid2) or {}
+                if not existing.get("name"):
+                    users[bid2] = {
+                        "name": name, "real_name": name, "display_name": name,
+                        "is_bot": True,
+                        "image_48": existing.get("image_48"),
+                        "image_72": existing.get("image_72"),
+                    }
     (out_root / "users.json").write_text(json.dumps(users, ensure_ascii=False, indent=2))
 
     # channels.json：cid → {name, is_im/mpim/channel/private, members?}

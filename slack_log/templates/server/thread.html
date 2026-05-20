@@ -1,23 +1,26 @@
 {% extends "_base.html" %}
 {% block title %}thread {{ thread_meta.thread_ts }} - #{{ channel_name }}{% endblock %}
-{% block home %}../../../index.html{% endblock %}
-{% block crumbs %} / <a href="../index.html">#{{ channel_name }}</a> / <strong>{{ thread_meta.thread_ts }}</strong>{% endblock %}
+{% block home %}/{% endblock %}
+{% block search_href %}/search{% endblock %}
+{% block crumbs %} / <a href="/channels/{{ channel_id }}">#{{ channel_name }}</a> / <strong>{{ thread_meta.thread_ts }}</strong>{% endblock %}
 {% block body %}
-<h1>{% if thread_meta.is_thread %}🧵 thread{% else %}💬 message{% endif %}</h1>
+<h1><span data-i18n="{% if thread_meta.is_thread %}th_thread{% else %}th_message{% endif %}">{% if thread_meta.is_thread %}🧵 thread{% else %}💬 message{% endif %}</span></h1>
 <p class="meta">
-  {% if thread_meta.is_thread %}{{ messages | length }} 条消息 · {{ thread_meta.reply_count }} 回复{% endif %}
+  {% if thread_meta.is_thread %}{{ messages | length }}<span data-i18n="th_msgs_unit">messages</span> · {{ thread_meta.reply_count }} <span data-i18n="th_replies_unit">replies</span>{% endif %}
 </p>
 
 <div class="thread">
 {% for m in messages %}
 <div class="msg {% if loop.first and thread_meta.is_thread %}parent{% endif %}" id="{{ m._ref_id }}">
+  {% if m.user %}<a href="/user/{{ m.user }}" class="user-link" data-i18n-title="th_user_link_title" title="see all messages by {{ m._user_display }}">{% endif %}
   {% if m._avatar %}<img class="avatar-msg" src="{{ m._avatar }}" alt="" />{% else %}<span class="avatar-placeholder" style="width: 36px; height: 36px;">👤</span>{% endif %}
+  {% if m.user %}</a>{% endif %}
   <div class="body">
     <div class="header">
-      <span class="user">{{ m._user_display }}</span>
+      {% if m.user %}<a href="/user/{{ m.user }}" class="user-link">{% endif %}<span class="user">{{ m._user_display }}</span>{% if m.user %}</a>{% endif %}
       <span class="time">{{ m._human_time }}</span>
-      <span class="ref"><a href="#{{ m._ref_id }}" title="永久链接">#{{ m.ts }}</a></span>
-      {% if m.edited %}<span class="meta">(已编辑)</span>{% endif %}
+      <span class="ref"><a href="#{{ m._ref_id }}" data-i18n-title="th_perma" title="permalink">#{{ m.ts }}</a></span>
+      {% if m.edited %}<span class="meta" data-i18n="th_edited">(edited)</span>{% endif %}
     </div>
     <div class="text">{{ m._text_rendered | safe }}</div>
 
@@ -28,7 +31,7 @@
         {{ r.emoji }} {{ r.count }}
         {% if r.users %}
         <span class="reaction-popup">
-          <span class="rp-title">:{{ r.name }}: 来自 {{ r.count }} 人</span>
+          <span class="rp-title">:{{ r.name }}: <span data-i18n="rp_from">from</span> {{ r.count }}<span data-i18n="rp_people"></span></span>
           {% for u in r.users %}
           <span class="rp-user">
             {% if u.avatar %}<img src="{{ u.avatar }}" alt="" />{% endif %}
@@ -84,7 +87,7 @@
             <span class="ifb-meta">
               <span class="ifb-name">{{ f.name }}</span>
               <span class="ifb-info">{{ f.size_human }}{% if f.mimetype %} · {{ f.mimetype }}{% endif %}</span>
-              <span class="ifb-info">图片加载失败 — 点击在 Slack 查看</span>
+              <span class="ifb-info" data-i18n="img_fail">image failed to load — open in Slack</span>
             </span>
           </span>
           <span class="img-caption">{{ f.name }} · {{ f.size_human }}</span>
@@ -92,7 +95,7 @@
         {% elif f.kind == 'link' %}
         <a class="file-link" href="{{ f.rel }}" target="_blank" title="{{ f.mimetype }} · {{ f.size_human }}">📎 {{ f.name }} <span class="meta">{{ f.size_human }}</span></a>
         {% else %}
-        <a class="file-remote" href="{{ f.href }}" target="_blank" rel="noopener" title="未本地下载，跳 Slack">🌐 {{ f.name }} <span class="meta">{{ f.size_human }} · remote</span></a>
+        <a class="file-remote" href="{{ f.href }}" target="_blank" rel="noopener" data-i18n-title="file_remote_title" title="not downloaded locally — opens in Slack">🌐 {{ f.name }} <span class="meta">{{ f.size_human }} · remote</span></a>
         {% endif %}
       {% endfor %}
     </div>

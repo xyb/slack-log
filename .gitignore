@@ -93,3 +93,6 @@ dmypy.json
 
 # macOS
 .DS_Store
+html-static/
+search.db
+search.db-*

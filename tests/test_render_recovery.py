@@ -37,7 +37,7 @@ def test_one_broken_thread_does_not_stop_channel(tmp_path: Path):
     )
 
     env = Environment(
-        loader=FileSystemLoader(str(Path(render.__file__).parent / "templates")),
+        loader=FileSystemLoader(str(Path(render.__file__).parent / "templates" / "static")),
         autoescape=select_autoescape(["html"]),
     )
 

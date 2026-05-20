@@ -1,0 +1,67 @@
+{% extends "_base.html" %}
+{% block title %}{{ user_name }} — slack-log{% endblock %}
+{% block home %}/{% endblock %}
+{% block search_href %}/search{% endblock %}
+{% block crumbs %} / <strong>👤 {{ user_name }}</strong>{% endblock %}
+{% block body %}
+
+<div style="display: flex; gap: 16px; align-items: center; margin: 20px 0;">
+  {% if avatar %}<img src="{{ avatar }}" alt="" style="width: 64px; height: 64px; border-radius: 6px;">{% else %}<span style="font-size: 48px;">👤</span>{% endif %}
+  <div>
+    <h1 style="margin: 0;">{{ user_name }}</h1>
+    <div style="color: var(--text-muted); font-size: 0.9em; margin-top: 4px;">
+      <code>{{ user_id }}</code>
+      · <b>{{ total }}</b><span data-i18n="user_msgs_unit">messages</span>
+      {% if total >= 500 %}<span data-i18n="user_truncated"> (truncated to last 500)</span>{% endif %}
+      · <span data-i18n="user_across">across</span> {{ by_channel_segments | length }} <span data-i18n="user_channels">channels</span>
+    </div>
+  </div>
+</div>
+
+<div class="view-tabs" style="margin: 16px 0; border-bottom: 1px solid var(--border);">
+  <a href="?view=timeline" data-i18n="view_timeline"
+     style="display: inline-block; padding: 6px 12px; text-decoration: none;
+            {% if view == 'timeline' %}border-bottom: 2px solid var(--link); color: var(--link); font-weight: 600;{% else %}color: var(--text-muted);{% endif %}">
+    🕐 Timeline
+  </a>
+  <a href="?view=by_channel" data-i18n="view_by_channel"
+     style="display: inline-block; padding: 6px 12px; text-decoration: none; margin-left: 4px;
+            {% if view == 'by_channel' %}border-bottom: 2px solid var(--link); color: var(--link); font-weight: 600;{% else %}color: var(--text-muted);{% endif %}">
+    📂 By channel
+  </a>
+</div>
+
+{% if view == 'by_channel' %}
+  {% set _segments = by_channel_segments %}
+{% else %}
+  {% set _segments = segments %}
+{% endif %}
+
+{% for seg in _segments %}
+<section class="tl-section" style="margin-top: 22px;">
+  <h2 style="font-size: 1.05em; color: var(--link); margin: 0 0 6px; font-weight: 600;">
+    <a href="/channels/{{ seg.channel_id }}" style="color: inherit; text-decoration: none;">#{{ seg.channel_name }}</a>
+  </h2>
+  {% for day in seg.days %}
+  <div class="tl-day" style="margin-top: 4px;">
+    <div style="color: var(--text-muted); font-size: 0.82em; font-variant-numeric: tabular-nums; padding: 2px 12px; margin-top: 2px;">{{ day.date }}</div>
+    <ul class="user-msg-list" style="list-style: none; padding: 0; margin: 0;">
+      {% for m in day.msgs %}
+      <li style="padding: 4px 12px; border-bottom: 1px solid var(--border-soft);">
+        <a href="{{ m.url }}" style="color: var(--text); text-decoration: none; display: block;">
+          <span style="color: var(--text-faint); font-size: 0.82em; font-variant-numeric: tabular-nums; display: inline-block; min-width: 70px;">{{ m.time_short }}</span>
+          <span style="color: var(--thread-preview-fg);">{{ m.text | truncate(200) }}</span>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+</section>
+{% endfor %}
+
+{% if total == 0 %}
+<p style="color: var(--text-faint); margin-top: 30px;" data-i18n="user_empty">No messages from this user.</p>
+{% endif %}
+
+{% endblock %}

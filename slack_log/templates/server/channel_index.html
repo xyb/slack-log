@@ -1,20 +1,21 @@
 {% extends "_base.html" %}
 {% block title %}#{{ channel_name }} - slack-log{% endblock %}
-{% block home %}../../index.html{% endblock %}
+{% block home %}/{% endblock %}
+{% block search_href %}/search{% endblock %}
 {% block crumbs %} / <strong>#{{ channel_name }}</strong> <span class="meta">({{ channel_id }})</span>{% endblock %}
 {% block body %}
 <h1>#{{ channel_name }}</h1>
-<p>{{ threads | length }} threads</p>
+<p>{{ threads | length }} <span data-i18n="ch_threads_unit">threads</span></p>
 
 <div class="sort-tabs">
-  <button class="active" data-sort="latest">按最新回复时间</button>
-  <button data-sort="first">按发布时间</button>
+  <button class="active" data-sort="latest" data-i18n="sort_latest">Latest reply</button>
+  <button data-sort="first" data-i18n="sort_first">First posted</button>
 </div>
 
 <ul class="thread-list" id="thread-list">
   {% for t in threads %}
   <li data-first="{{ t.first_ts }}" data-latest="{{ t.latest_reply_ts }}">
-    <a href="threads/{{ t.thread_ts }}.html" class="thread-link">
+    <a href="/channels/{{ channel_id }}/threads/{{ t.thread_ts }}" class="thread-link">
       {% if t._first_user_avatar %}<img class="avatar" src="{{ t._first_user_avatar }}" alt="" />{% else %}<span class="avatar-placeholder">👤</span>{% endif %}
       <div class="thread-body">
         <div class="row1">
@@ -22,10 +23,10 @@
           <span class="preview">{{ t._preview_rendered | safe }}</span>
         </div>
         <div class="row2 meta">
-          首 {{ t._first_human }}
-          {% if t.reply_count %}· 最新回复 {{ t._latest_human }} · 💬 {{ t.reply_count }} 条回复{% endif %}
+          <span data-i18n="ch_first_at">first</span> {{ t._first_human }}
+          {% if t.reply_count %}· <span data-i18n="ch_latest_reply">latest reply</span> {{ t._latest_human }} · 💬 {{ t.reply_count }}<span data-i18n="ch_reply_unit">replies</span>{% endif %}
           {% if t.has_files %}· 📎{% endif %}
-          <span class="enter">查看 thread →</span>
+          <span class="enter" data-i18n="ch_enter">open thread →</span>
         </div>
       </div>
     </a>

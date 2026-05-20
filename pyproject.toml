@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "slack-log"
-version = "0.6.0"
+version = "0.7.0"
 description = "Static IRC-log-style HTML viewer for Slack workspaces, on top of slackdump"
 readme = "README.md"
 license = { text = "MIT" }
@@ -16,15 +16,19 @@ dependencies = [
     "emoji>=2.0",
     "tqdm>=4.0",
     "python-dotenv>=1.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8.0"]
+test = ["pytest>=8.0", "httpx>=0.27"]
 
 [project.scripts]
 slack-log-split  = "slack_log.splitter:main"
 slack-log-attach = "slack_log.attach:main"
 slack-log-render = "slack_log.render:main"
+slack-log-index  = "slack_log.indexer:main"
+slack-log-serve  = "slack_log.server:main"
 
 [project.urls]
 Repository = "https://github.com/xyb/slack-log"
@@ -33,7 +37,7 @@ Repository = "https://github.com/xyb/slack-log"
 include = ["slack_log*"]
 
 [tool.setuptools.package-data]
-slack_log = ["templates/*.html"]
+slack_log = ["templates/static/*.html", "templates/server/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

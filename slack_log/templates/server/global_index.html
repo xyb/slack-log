@@ -1,0 +1,56 @@
+{% extends "_base.html" %}
+{% block title %}slack-log{% endblock %}
+{% block home %}/{% endblock %}
+{% block search_href %}/search{% endblock %}
+{% block body %}
+<h1>slack-log</h1>
+
+{% if channels %}
+<h2>📢 Channels <span class="meta">({{ channels | length }})</span></h2>
+<p class="section-intro" style="color: var(--text-muted); font-size: 0.9em; margin: 0 0 8px;" data-i18n="section_channels_intro">Public / private channels. Each thread gets its own page; URLs carry a permanent ref id for external citation.</p>
+<ul class="channel-list">
+  {% for c in channels %}
+  <li>
+    <a href="/channels/{{ c.id }}" class="channel-link channel">
+      <span class="cname">#{{ c.name }}</span>
+      <span class="meta">{{ c.thread_count }} threads</span>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if dms %}
+<h2>💬 Direct Messages <span class="meta">({{ dms | length }})</span></h2>
+<p class="section-intro" style="color: var(--text-muted); font-size: 0.9em; margin: 0 0 8px;" data-i18n="section_dms_intro">Direct messages, grouped by the other person.</p>
+<ul class="dm-list">
+  {% for d in dms %}
+  <li>
+    <a href="/channels/{{ d.id }}" class="channel-link dm">
+      {% if d.avatar %}<img class="avatar" src="{{ d.avatar }}" alt="" />{% else %}<span class="avatar-placeholder">👤</span>{% endif %}
+      <span class="cname">{{ d.name }}</span>
+      <span class="meta">{{ d.thread_count }} threads</span>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if mpims %}
+<h2>👥 Group Messages <span class="meta">({{ mpims | length }})</span></h2>
+<p class="section-intro" style="color: var(--text-muted); font-size: 0.9em; margin: 0 0 8px;" data-i18n="section_mpims_intro">Multi-person group DMs.</p>
+<ul class="mpim-list">
+  {% for m in mpims %}
+  <li>
+    <a href="/channels/{{ m.id }}" class="channel-link mpim">
+      <span class="avatar-group">
+        {% for av in m.avatars %}<img class="avatar-sm" src="{{ av }}" alt="" />{% endfor %}
+      </span>
+      <span class="cname">{{ m.name }}</span>
+      <span class="meta">{{ m.thread_count }} threads</span>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}
