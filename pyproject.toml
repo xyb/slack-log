@@ -15,6 +15,7 @@ dependencies = [
     "jinja2>=3.0",
     "emoji>=2.0",
     "tqdm>=4.0",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]

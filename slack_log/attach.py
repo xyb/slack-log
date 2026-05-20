@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """
-扫所有 thread jsonl 里的 files 字段，按阈值差异化下载附件。
+Walk every thread jsonl, download attachments according to mime/size policy.
 
-策略：
-- 图片 / 文本 / 代码片段 / PDF (<10MB)：下载真实文件 + .meta.json
-- zip / 视频 / 大文件：只存 .meta.json（保留 url_private_download 备用）
+Policy:
+- Images / text / code snippets / PDF (<10MB): download + write .meta.json
+- zip / video / large archives: write .meta.json only (preserves url_private_download)
 
-认证：复用 xoxc/xoxd token from ~/.cursor/mcp.json。
+Auth: xoxc Slack browser token + xoxd cookie. Resolved in this order:
+  1. Environment variables SLACK_XOXC / SLACK_XOXD (both required as a pair)
+  2. ./.env in the current working directory
+  3. ~/.config/slack-log/.env (XDG-respecting)
+  4. RuntimeError with instructions
+
+Files use the standard .env format parsed by python-dotenv.
 """
 
 import argparse
@@ -16,7 +22,14 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from dotenv import dotenv_values
 from tqdm import tqdm
+
+# Per-user .env path. Override via monkeypatch in tests; users override via
+# $XDG_CONFIG_HOME.
+USER_DOTENV = Path(
+    os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
+) / "slack-log" / ".env"
 
 # (mimetype 前缀, 最大字节)
 DOWNLOAD_RULES = [
@@ -44,10 +57,26 @@ def should_download(mimetype: str, size: int) -> bool:
 
 
 def load_token() -> tuple[str, str]:
-    with open(os.path.expanduser("~/.cursor/mcp.json")) as f:
-        d = json.load(f)
-    env = d["mcpServers"]["slack"]["env"]
-    return env["SLACK_MCP_XOXC_TOKEN"], env["SLACK_MCP_XOXD_TOKEN"]
+    """Resolve (xoxc, xoxd) from env vars or .env files, else raise."""
+    xoxc = os.environ.get("SLACK_XOXC")
+    xoxd = os.environ.get("SLACK_XOXD")
+    if xoxc and xoxd:
+        return xoxc, xoxd
+    # Try ./.env first (project-local), then user .env (XDG).
+    for path in (Path(".env"), USER_DOTENV):
+        if path.exists():
+            values = dotenv_values(path)
+            xoxc_f = values.get("SLACK_XOXC")
+            xoxd_f = values.get("SLACK_XOXD")
+            if xoxc_f and xoxd_f:
+                return xoxc_f, xoxd_f
+    raise RuntimeError(
+        "missing Slack credentials. Either:\n"
+        "  - export SLACK_XOXC and SLACK_XOXD env vars, or\n"
+        "  - write them to ./.env (project-local) or\n"
+        f"    {USER_DOTENV} (per-user).\n"
+        "Both xoxc (browser Authorization header) and xoxd (cookie d) are needed."
+    )
 
 
 def download_file(url: str, dst: Path, xoxc: str, xoxd: str) -> bool:

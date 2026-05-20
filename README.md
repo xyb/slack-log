@@ -68,6 +68,37 @@ cd html && python3 -m http.server 8765
 open http://localhost:8765/
 ```
 
+### Slack credentials for attach
+
+`slackdump` handles its own auth, but `attach.py` also needs your Slack
+browser token (`xoxc-...`) and cookie (`xoxd-...`) to download private file
+attachments. Resolution order:
+
+1. `SLACK_XOXC` + `SLACK_XOXD` environment variables
+2. `./.env` in the current working directory (project-local)
+3. `~/.config/slack-log/.env` (per-user, XDG-respecting)
+
+```sh
+# Option A: env vars
+export SLACK_XOXC=xoxc-your-token
+export SLACK_XOXD=xoxd-your-cookie
+
+# Option B: per-user .env (chmod 600!)
+mkdir -p ~/.config/slack-log
+cat > ~/.config/slack-log/.env <<EOF
+SLACK_XOXC=xoxc-your-token
+SLACK_XOXD=xoxd-your-cookie
+EOF
+chmod 600 ~/.config/slack-log/.env
+```
+
+Files use the standard `.env` format parsed by [python-dotenv]. Same values
+that `slackdump workspace import` accepted — see
+<https://github.com/rusq/slackdump/wiki/EZ-Login-3000> for how to read them
+from a browser session.
+
+[python-dotenv]: https://github.com/theskumar/python-dotenv
+
 ## Common workflow
 
 ```sh

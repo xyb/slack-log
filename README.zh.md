@@ -63,6 +63,35 @@ cd html && python3 -m http.server 8765
 open http://localhost:8765/
 ```
 
+### attach 的 Slack 凭据
+
+`slackdump` 自己处理认证，但 `attach.py` 下载私有文件附件还需要你的 Slack 浏览器
+token（`xoxc-...`）和 cookie（`xoxd-...`）。解析顺序：
+
+1. 环境变量 `SLACK_XOXC` + `SLACK_XOXD`
+2. 当前目录的 `./.env`（项目本地）
+3. `~/.config/slack-log/.env`（用户级，遵循 XDG）
+
+```sh
+# 方式 A：环境变量
+export SLACK_XOXC=xoxc-your-token
+export SLACK_XOXD=xoxd-your-cookie
+
+# 方式 B：用户级 .env（记得 chmod 600）
+mkdir -p ~/.config/slack-log
+cat > ~/.config/slack-log/.env <<EOF
+SLACK_XOXC=xoxc-your-token
+SLACK_XOXD=xoxd-your-cookie
+EOF
+chmod 600 ~/.config/slack-log/.env
+```
+
+文件用 [python-dotenv] 解析标准 `.env` 格式。跟 `slackdump workspace import`
+用的是同一对值 — 怎么从浏览器抓出来见
+<https://github.com/rusq/slackdump/wiki/EZ-Login-3000>。
+
+[python-dotenv]: https://github.com/theskumar/python-dotenv
+
 ## 常用命令
 
 ```sh
