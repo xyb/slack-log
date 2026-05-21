@@ -15,6 +15,8 @@ jobs:
       contents: write  # for creating the GitHub Release
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-tags: true  # need every tag to find the highest version
 
       - name: Verify tag matches pyproject version
         run: |
@@ -38,8 +40,10 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: xieyanbo/slack-log
-          # default flavor latest=auto → a non-prerelease semver tag also
-          # moves :latest. Deployments still pin an exact version.
+          # latest=false here — metadata-action only checks "is prerelease",
+          # not "is highest version". :latest is moved by the explicit
+          # highest-version step below so an older patch can't drag it back.
+          flavor: latest=false
           tags: type=semver,pattern={{version}}
 
       - name: Build and push
@@ -52,6 +56,21 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Move :latest if this is the highest version
+        # metadata-action can't compare versions. Decide here: only move
+        # :latest when this tag is the highest X.Y.Z release tag, so
+        # publishing an older patch after a newer one never drags it back.
+        run: |
+          highest=$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          echo "this tag=$GITHUB_REF_NAME · highest release tag=$highest"
+          if [ "$GITHUB_REF_NAME" = "$highest" ]; then
+            docker buildx imagetools create -t xieyanbo/slack-log:latest \
+              "xieyanbo/slack-log:${GITHUB_REF_NAME#v}"
+            echo "::notice::moved :latest to ${GITHUB_REF_NAME#v}"
+          else
+            echo "::notice::$GITHUB_REF_NAME is not the highest release ($highest) — :latest unchanged"
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3

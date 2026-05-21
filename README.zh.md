@@ -102,7 +102,7 @@ chmod 600 ~/.config/slack-log/.env
 slack-log 以一个公开 Docker 镜像 + 一组 Kubernetes 部署文件的形式发布：
 
 - **镜像**——Docker Hub 上的 `xieyanbo/slack-log`，多架构（amd64/arm64）。每次正式
-  发布推一个固定 `X.Y.Z` 版本 tag，并把 `:latest` 移到它上面；部署仍固定到具体版本号。
+  发布推一个固定 `X.Y.Z` 版本 tag；`:latest` 跟随最高版本号。部署仍固定到具体版本号。
 - **Kubernetes**——`deploy/k8s/` 放脱敏的 `*.example.yaml`：Deployment + Service +
   Ingress + 一个共享 PVC + 每日 refresh CronJob。把 example 拷成去掉 `.example` 的
   同名文件，填进真实值再 apply——真实那份不进 git。
