@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "slack-log"
-version = "0.8.11"
-description = "Static IRC-log-style HTML viewer for Slack workspaces, on top of slackdump"
+version = "0.9.0"
+description = "Searchable web service for a Slack workspace archive — dynamic pages + full-text search, on top of slackdump"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Xie Yanbo" }]

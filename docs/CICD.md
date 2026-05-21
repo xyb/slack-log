@@ -33,8 +33,8 @@ Runs on every `push` and `pull_request`. Two jobs:
 
 Runs on a pushed tag matching `v*`:
 
-1. **Version guard** — assert the git tag (`v0.8.11`) equals the
-   `pyproject.toml` version (`0.8.11`); fail fast on a mismatch.
+1. **Version guard** — assert the git tag (`vX.Y.Z`) and the
+   `pyproject.toml` version agree; fail fast on a mismatch.
 2. `setup-qemu` + `setup-buildx` for multi-platform builds.
 3. Log in to Docker Hub with repo secrets.
 4. `metadata-action` derives the image tag from the git tag.

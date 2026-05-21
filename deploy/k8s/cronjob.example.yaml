@@ -43,7 +43,7 @@ spec:
                   topologyKey: kubernetes.io/hostname
           containers:
             - name: refresh
-              image: xieyanbo/slack-log:0.8.11
+              image: xieyanbo/slack-log:0.9.0
               command: ["sh", "scripts/refresh.sh"]
               volumeMounts:
                 - name: data
