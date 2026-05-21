@@ -117,8 +117,9 @@ Files use the standard `.env` format parsed by
 
 slack-log ships as a public Docker image and a set of Kubernetes manifests:
 
-- **Image** — `xieyanbo/slack-log` on Docker Hub, multi-arch (amd64/arm64),
-  pinned version tags (never `:latest`).
+- **Image** — `xieyanbo/slack-log` on Docker Hub, multi-arch (amd64/arm64).
+  Each release publishes a pinned `X.Y.Z` tag and moves `:latest` to it;
+  deployments pin the exact version.
 - **Kubernetes** — `deploy/k8s/` holds sanitized `*.example.yaml` manifests:
   Deployment + Service + Ingress + a shared PVC + a daily refresh CronJob. Copy
   an example to the same name without `.example`, fill in your real values, and

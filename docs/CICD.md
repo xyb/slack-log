@@ -38,10 +38,10 @@ Runs on a pushed tag matching `v*`:
 2. `setup-qemu` + `setup-buildx` for multi-platform builds.
 3. Log in to Docker Hub with repo secrets.
 4. `metadata-action` derives the image tag from the git tag.
-5. `build-push-action` builds `linux/amd64,linux/arm64` with a GHA layer cache
-   and pushes `xieyanbo/slack-log:<version>`. No `:latest` is published —
-   deployments pin exact versions, and a floating `latest` is an easy way to
-   ship the wrong thing.
+5. `build-push-action` builds `linux/amd64,linux/arm64` with a GHA layer cache,
+   pushes `xieyanbo/slack-log:<version>`, and moves `:latest` to it. `:latest`
+   tracks the newest release for convenience — but deployments still pin an
+   exact version, never `:latest`.
 6. A GitHub Release is created for the tag with auto-generated notes.
 
 Multi-arch is deliberate: it makes the architecture mismatch above

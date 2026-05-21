@@ -38,7 +38,8 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: xieyanbo/slack-log
-          flavor: latest=false  # deployments pin exact versions, never :latest
+          # default flavor latest=auto → a non-prerelease semver tag also
+          # moves :latest. Deployments still pin an exact version.
           tags: type=semver,pattern={{version}}
 
       - name: Build and push
