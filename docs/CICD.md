@@ -1,9 +1,9 @@
 # CI/CD
 
-Status: **implemented.** `ci.yml` and `release.yml` live in
+Status: **implemented.** `ci.yml`, `release.yml` and `dev.yml` live in
 `.github/workflows/`. CI runs on every push and pull request right away. The
-release workflow needs two Docker Hub secrets on the repo before it can
-publish — see *Secrets* below.
+release and dev workflows need two Docker Hub secrets on the repo before they
+can publish — see *Secrets* below.
 
 ## Why
 
@@ -49,14 +49,35 @@ structurally impossible. The `arm64` half builds under QEMU emulation and
 adds a few minutes per release — acceptable for a small image that ships
 infrequently.
 
+## Dev images — `dev.yml`
+
+`release.yml` only fires on a version tag. To try a change on a test
+deployment without cutting a release, `dev.yml` builds an unversioned image
+on demand. By design CI tests run automatically on every push and PR, but
+building a deployable image stays a manual step.
+
+- **Trigger** — manual only (`workflow_dispatch`). Run it from the Actions
+  tab, or `gh workflow run dev.yml -f tag=dev`.
+- **Any branch, including a PR.** `workflow_dispatch` builds whatever ref it
+  is pointed at: `gh workflow run dev.yml --ref <branch> -f tag=pr-123`
+  builds that branch's code, so an open PR can go to a test target before it
+  merges — no need to merge to main first.
+- **Build** — single-arch `linux/amd64` (matches the cluster, no QEMU — much
+  faster than a release build), pushed to `xieyanbo/slack-log:<tag>`. The
+  `tag` input defaults to `dev`.
+- No version guard, no GitHub Release — it is not a release.
+
+Deploy a dev image to a test target with
+`kubectl set image deployment/<name> <container>=xieyanbo/slack-log:<tag>`.
+
 ## Secrets
 
-The release workflow needs two GitHub repository secrets
+The release and dev workflows need two GitHub repository secrets
 (Settings → Secrets and variables → Actions):
 
 - `DOCKERHUB_USERNAME` — `xieyanbo`
 - `DOCKERHUB_TOKEN` — a Docker Hub access token with **Read & Write** scope
-  (the release workflow only pushes images; Delete is not needed)
+  (the workflows only push images; Delete is not needed)
 
 Until these are set, `ci.yml` works but `release.yml` cannot push.
 

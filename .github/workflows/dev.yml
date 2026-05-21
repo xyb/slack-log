@@ -1,0 +1,33 @@
+name: Dev image
+
+# Manually-triggered build of an unversioned image for test deployments —
+# for trying a change on a cluster without cutting a release.
+# Single-arch (linux/amd64, matching the cluster): no QEMU, much faster
+# than a release build. No version guard, no GitHub Release.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to publish under xieyanbo/slack-log"
+        default: dev
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: xieyanbo/slack-log:${{ inputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
