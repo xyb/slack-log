@@ -1,33 +1,69 @@
 name: Dev image
 
-# Manually-triggered build of an unversioned image for test deployments —
-# for trying a change on a cluster without cutting a release.
-# Single-arch (linux/amd64, matching the cluster): no QEMU, much faster
-# than a release build. No version guard, no GitHub Release.
+# Build an unversioned image for test deployments. Two ways to trigger,
+# both deliberate by design — CI tests run automatically, but cutting a
+# deployable image is always a manual action:
+#   1. Add the `build-image` label to a PR — builds that PR's code, then
+#      removes the label so it can be re-triggered.
+#   2. workflow_dispatch — from the Actions tab, any branch.
+# Image tags carry the build date + short commit sha (e.g.
+# pr-12-20260521-a1b2c3d) so old dev images are easy to spot and prune.
+# Single-arch linux/amd64 (matches the cluster, no QEMU). No version
+# guard, no GitHub Release.
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Image tag to publish under xieyanbo/slack-log"
+        description: "Tag prefix (build date + commit sha are appended)"
         default: dev
         required: true
+  pull_request:
+    types: [labeled]
 
 jobs:
   build:
+    # workflow_dispatch always; PR only when the build-image label is added.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.label.name == 'build-image'
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write  # remove the trigger label when the build is done
     steps:
       - uses: actions/checkout@v6
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          date=$(date -u +%Y%m%d)
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            sha=$(echo "${{ github.event.pull_request.head.sha }}" | cut -c1-7)
+            value="pr-${{ github.event.pull_request.number }}-${date}-${sha}"
+          else
+            sha=$(echo "${{ github.sha }}" | cut -c1-7)
+            value="${{ inputs.tag }}-${date}-${sha}"
+          fi
+          echo "value=$value" >> "$GITHUB_OUTPUT"
+          echo "### Dev image: \`xieyanbo/slack-log:$value\`" >> "$GITHUB_STEP_SUMMARY"
+
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64
           push: true
-          tags: xieyanbo/slack-log:${{ inputs.tag }}
+          tags: xieyanbo/slack-log:${{ steps.tag.outputs.value }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Remove the trigger label
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr edit ${{ github.event.pull_request.number }} --remove-label build-image

@@ -51,21 +51,28 @@ infrequently.
 
 ## Dev images — `dev.yml`
 
-`release.yml` only fires on a version tag. To try a change on a test
-deployment without cutting a release, `dev.yml` builds an unversioned image
-on demand. By design CI tests run automatically on every push and PR, but
-building a deployable image stays a manual step.
+`release.yml` only fires on a version tag. To deploy a change to a test
+target without cutting a release, `dev.yml` builds an unversioned image on
+demand. By design CI tests run automatically on every push and PR, but
+building a deployable image is always a deliberate action — triggered two
+ways:
 
-- **Trigger** — manual only (`workflow_dispatch`). Run it from the Actions
-  tab, or `gh workflow run dev.yml -f tag=dev`.
-- **Any branch, including a PR.** `workflow_dispatch` builds whatever ref it
-  is pointed at: `gh workflow run dev.yml --ref <branch> -f tag=pr-123`
-  builds that branch's code, so an open PR can go to a test target before it
-  merges — no need to merge to main first.
-- **Build** — single-arch `linux/amd64` (matches the cluster, no QEMU — much
-  faster than a release build), pushed to `xieyanbo/slack-log:<tag>`. The
-  `tag` input defaults to `dev`.
-- No version guard, no GitHub Release — it is not a release.
+- **From a PR — add the `build-image` label.** The workflow builds that
+  PR's code, then removes the label so another click re-triggers it. This is
+  the closest thing to a "build this PR" button — no need to merge to main
+  first.
+- **From the Actions tab — `workflow_dispatch`.** Builds any branch:
+  `gh workflow run dev.yml --ref <branch>`. The `tag` input is a prefix
+  (default `dev`).
+
+Image tags carry the build date and short commit sha —
+`pr-12-20260521-a1b2c3d`, `dev-20260521-a1b2c3d` — so every dev image is
+unique and old ones are easy to identify and prune by date. The full tag is
+printed to the workflow run summary.
+
+Either way the build is single-arch `linux/amd64` (matches the cluster, no
+QEMU — much faster than a release build). No version guard, no GitHub
+Release — it is not a release.
 
 Deploy a dev image to a test target with
 `kubectl set image deployment/<name> <container>=xieyanbo/slack-log:<tag>`.
