@@ -1,0 +1,15 @@
+# Keep the build context tiny — never ship local archives / rendered output.
+data/
+html/
+html-static/
+raw/
+search.db
+search.db-*
+logs/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.git/
+.venv/
+tests/
+*.md

@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: slack-log
+---
+# Shared data volume: search.db + html/ + data/ all live here.
+# Both the web Deployment and the refresh CronJob mount it. RWO is fine
+# because the CronJob is pinned to the same node as the server pod
+# (see podAffinity in cronjob.yaml).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: slack-log-data
+  namespace: slack-log
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: eks-auto-gp3
+  resources:
+    requests:
+      storage: 3Gi

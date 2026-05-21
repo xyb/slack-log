@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: slack-log
+  namespace: slack-log
+  labels:
+    app: slack-log
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate          # RWO volume — old pod must release before new mounts
+  selector:
+    matchLabels:
+      app: slack-log
+  template:
+    metadata:
+      labels:
+        app: slack-log
+    spec:
+      # Optional — pin to a node pool / tolerate taints on your cluster:
+      # nodeSelector:
+      #   your.cluster/nodepool: your-pool
+      # tolerations:
+      #   - key: your.cluster/dedicated
+      #     operator: Equal
+      #     value: "true"
+      #     effect: NoSchedule
+      containers:
+        - name: slack-log
+          # Public image on Docker Hub — slack-log is open source.
+          # Pinned version (not :latest) so rollouts are reproducible.
+          image: xieyanbo/slack-log:0.8.0
+          ports:
+            - containerPort: 8770
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          envFrom:
+            - configMapRef:
+                name: slack-log-config
+            - secretRef:
+                name: slack-log-secrets
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8770
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8770
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: slack-log-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: slack-log
+  namespace: slack-log
+spec:
+  selector:
+    app: slack-log
+  ports:
+    - port: 80
+      targetPort: 8770

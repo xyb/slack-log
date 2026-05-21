@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -281,7 +282,31 @@ def create_app(
     if html_root.exists():
         app.mount("/", StaticFiles(directory=str(html_root), html=True), name="static")
 
+    # Optional OIDC auth — activates only when OIDC_* env vars are present
+    # (production). Dev and pytest run unauthenticated.
+    from slack_log.auth import auth_config_from_env, install_auth
+
+    cfg = auth_config_from_env()
+    if cfg:
+        install_auth(app, **cfg)
+
     return app
+
+
+def create_app_from_env() -> FastAPI:
+    """uvicorn --factory entrypoint for the container.
+
+    Reads paths from env; in EKS a single PVC is mounted and SLACK_LOG_ROOT
+    points at it, so search.db / html/ / data/ all live on the shared volume.
+    """
+    root = Path(os.environ.get("SLACK_LOG_ROOT", "."))
+    inc = {p.strip() for p in os.environ.get("SLACK_LOG_INCLUDE", "").split(",") if p.strip()}
+    return create_app(
+        db_path=Path(os.environ.get("SLACK_LOG_DB", root / "search.db")),
+        html_root=Path(os.environ.get("SLACK_LOG_HTML", root / "html")),
+        data_root=Path(os.environ.get("SLACK_LOG_DATA", root / "data")),
+        include=inc or None,
+    )
 
 
 def main():

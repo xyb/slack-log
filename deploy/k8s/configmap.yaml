@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: slack-log-config
+  namespace: slack-log
+data:
+  SLACK_LOG_ROOT: "/data"
+  SLACK_LOG_INCLUDE: "channel"
+  OIDC_DISCOVERY_URL: "https://sso.example.com/application/o/slack-log/.well-known/openid-configuration"
+  SESSION_COOKIE_SECURE: "true"
