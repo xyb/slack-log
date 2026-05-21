@@ -87,6 +87,77 @@ def test_auth_prefix_is_public():
     assert r.status_code == 404
 
 
+def test_auth_routes_not_shadowed_by_static_mount(tmp_path, monkeypatch):
+    """Regression: StaticFiles mount('/') is a catch-all. install_auth must run
+    BEFORE the mount, or /auth/login gets shadowed and 404s — breaking login."""
+    monkeypatch.setenv("OIDC_CLIENT_ID", "cid")
+    monkeypatch.setenv("OIDC_CLIENT_SECRET", "secret")
+    monkeypatch.setenv("OIDC_DISCOVERY_URL", "https://sso.example/.well-known/openid-configuration")
+    data = tmp_path / "data"
+    (data / "channels").mkdir(parents=True)
+    (data / "users.json").write_text("{}")
+    (data / "channels.json").write_text("{}")
+    db = tmp_path / "search.db"
+    indexer.build_index(data, db)
+    html = tmp_path / "html"
+    html.mkdir()
+    (html / "index.html").write_text("<html>index</html>")
+
+    app = server.create_app(db_path=db, html_root=html, data_root=data)
+    client = TestClient(app, raise_server_exceptions=False)
+    # /auth/login must reach the auth handler. If StaticFiles shadowed it the
+    # response is 404; reaching the handler yields 302 (or 500 when the fake
+    # discovery URL is unreachable) — anything but 404.
+    r = client.get("/auth/login", follow_redirects=False)
+    assert r.status_code != 404, "auth route shadowed by static mount"
+
+
+def _capture_access(client_call):
+    """Run a request and return access-log messages from the slack_log.access
+    logger (propagate=False, so attach a handler directly)."""
+    import logging
+    logger = logging.getLogger("slack_log.access")
+    records: list[str] = []
+
+    class _Grab(logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+
+    h = _Grab()
+    logger.addHandler(h)
+    try:
+        client_call()
+    finally:
+        logger.removeHandler(h)
+    return records
+
+
+def test_access_log_records_path_and_user():
+    """AccessLogMiddleware emits an access line with path + user fields.
+    Stream target (stdout) is enforced in code: StreamHandler(sys.stdout)."""
+    client = TestClient(_app_with_auth())
+    msgs = _capture_access(lambda: client.get("/search?q=foo", follow_redirects=False))
+    line = next((m for m in msgs if "access path=/search" in m), None)
+    assert line is not None, "no access log line emitted"
+    assert "status=" in line and "user_name=" in line
+
+
+def test_access_log_skips_healthz():
+    """/healthz is probe noise — must not produce an access line."""
+    client = TestClient(_app_with_auth())
+    msgs = _capture_access(lambda: client.get("/healthz"))
+    assert not any("access path=/healthz" in m for m in msgs)
+
+
+def test_access_logger_targets_stdout():
+    """12-factor: access log must write to stdout, not stderr."""
+    import logging, sys
+    logger = logging.getLogger("slack_log.access")
+    streams = [getattr(h, "stream", None) for h in logger.handlers]
+    assert sys.stdout in streams, "access logger must have a stdout StreamHandler"
+    assert sys.stderr not in streams, "access logger must not write to stderr"
+
+
 def test_server_create_app_no_auth_without_env(tmp_path, monkeypatch):
     """create_app must stay unauthenticated when OIDC env is absent."""
     for k in ("OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET", "OIDC_DISCOVERY_URL"):

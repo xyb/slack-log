@@ -266,6 +266,104 @@ def render_files(files: list, channel_dir: Path) -> list:
     return out
 
 
+def enrich_messages(msgs: list[dict], users: dict, channels: dict, channel_dir: Path) -> list[dict]:
+    """Attach the _-prefixed render fields each message needs for thread.html.
+    Shared by static render (render.py) and dynamic render (server.py)."""
+    from slack_log.splitter import resolve_author
+
+    for m in msgs:
+        m["_ref_id"] = f"msg-{m['ts']}"
+        m["_human_time"] = ts_to_human(m["ts"])
+        display, avatar = resolve_author(m, users)
+        m["_user_display"] = display
+        m["_avatar"] = avatar
+        m["_text_rendered"] = expand_mentions(m.get("text") or "", users, channels)
+        m["_reactions_rendered"] = [
+            {
+                "emoji": emojize(f":{r['name']}:"),
+                "name": r.get("name"),
+                "count": r.get("count", 0),
+                "users": [
+                    {
+                        "uid": uid,
+                        "display": render_user(uid, users),
+                        "avatar": (users.get(uid) or {}).get("image_24")
+                        or (users.get(uid) or {}).get("image_48"),
+                    }
+                    for uid in (r.get("users") or [])
+                ],
+            }
+            for r in (m.get("reactions") or [])
+        ]
+        m["_files_rendered"] = render_files(m.get("files") or [], channel_dir)
+        m["_attachments_rendered"] = render_attachments(m.get("attachments") or [], users, channels)
+    return msgs
+
+
+def enrich_thread_meta(threads_meta: list[dict], users: dict, channels: dict) -> list[dict]:
+    """Attach the _-prefixed fields channel_index.html needs to each thread row."""
+    for tm in threads_meta:
+        tm["_first_human"] = ts_to_human(tm["first_ts"])
+        tm["_latest_human"] = ts_to_human(tm["latest_reply_ts"])
+        tm["_first_user_display"] = tm.get("first_author_display") or render_user(
+            tm.get("first_user"), users
+        )
+        tm["_first_user_avatar"] = tm.get("first_author_avatar")
+        if not tm["_first_user_avatar"] and tm.get("first_user"):
+            uobj = users.get(tm["first_user"]) or {}
+            tm["_first_user_avatar"] = uobj.get("image_48") or uobj.get("image_72")
+        tm["_preview_rendered"] = expand_for_preview(tm.get("first_text_preview") or "", users, channels)
+    return threads_meta
+
+
+def load_thread_meta(channel_dir: Path) -> list[dict]:
+    """Read a channel's index.jsonl into a list of thread-meta dicts."""
+    index_path = channel_dir / "index.jsonl"
+    out: list[dict] = []
+    if index_path.exists():
+        with open(index_path) as f:
+            for line in f:
+                if line.strip():
+                    out.append(json.loads(line))
+    return out
+
+
+def build_global_groups(data_root: Path, channels_meta: dict, users: dict,
+                        include: set | None = None) -> dict:
+    """Build the {channels, dms, mpims} groups for global_index.html."""
+    include = include or {"channel", "dm", "mpim"}
+    real_channels, dms, mpims = [], [], []
+    for cdir in (data_root / "channels").iterdir():
+        if not cdir.is_dir():
+            continue
+        cid = cdir.name
+        kind = kind_of(cid, channels_meta)
+        if kind not in include:
+            continue
+        n_threads = len(list((cdir / "threads").glob("*.jsonl"))) if (cdir / "threads").exists() else 0
+        cinfo = channels_meta.get(cid) or {}
+        item = {"id": cid, "name": cinfo.get("name") or cid, "thread_count": n_threads}
+        if cinfo.get("is_im"):
+            other_uid = cinfo.get("other_uid")
+            other_user = users.get(other_uid) if other_uid else None
+            item["avatar"] = (other_user or {}).get("image_72") if other_user else None
+            dms.append(item)
+        elif cinfo.get("is_mpim"):
+            members = cinfo.get("members") or []
+            item["avatars"] = [
+                (users.get(m) or {}).get("image_48")
+                for m in members[:5]
+                if (users.get(m) or {}).get("image_48")
+            ]
+            mpims.append(item)
+        else:
+            real_channels.append(item)
+    real_channels.sort(key=lambda c: c["name"])
+    dms.sort(key=lambda c: c["thread_count"], reverse=True)
+    mpims.sort(key=lambda c: c["thread_count"], reverse=True)
+    return {"channels": real_channels, "dms": dms, "mpims": mpims}
+
+
 def render_channel_html(channel_dir: Path, html_root: Path, users: dict, channels: dict, env: Environment, generated_at: str) -> None:
     cid = channel_dir.name
     channel_name = render_channel(cid, channels)
@@ -279,13 +377,7 @@ def render_channel_html(channel_dir: Path, html_root: Path, users: dict, channel
     if data_att.exists() and not html_att.exists():
         html_att.symlink_to(data_att.resolve())
 
-    # 拉 index.jsonl 拿 thread metadata
-    index_path = channel_dir / "index.jsonl"
-    threads_meta = []
-    if index_path.exists():
-        with open(index_path) as f:
-            for line in f:
-                threads_meta.append(json.loads(line))
+    threads_meta = load_thread_meta(channel_dir)
 
     # 渲染每个 thread.html — 单 thread 失败不影响其他 thread / channel index
     for tm in threads_meta:
@@ -293,37 +385,10 @@ def render_channel_html(channel_dir: Path, html_root: Path, users: dict, channel
         if not ttp.exists():
             continue
         try:
-            msgs = load_thread(ttp)
+            msgs = enrich_messages(load_thread(ttp), users, channels, channel_dir)
         except Exception as e:
             print(f"⚠️  {cid}/{tm['thread_ts']}: load failed ({type(e).__name__}: {e}) — skip", file=sys.stderr)
             continue
-        # 给每条消息加 ref_id (= msg-<ts>) + 人类可读字段
-        for m in msgs:
-            m["_ref_id"] = f"msg-{m['ts']}"
-            m["_human_time"] = ts_to_human(m["ts"])
-            from slack_log.splitter import resolve_author
-            display, avatar = resolve_author(m, users)
-            m["_user_display"] = display
-            m["_avatar"] = avatar
-            m["_text_rendered"] = expand_mentions(m.get("text") or "", users, channels)
-            m["_reactions_rendered"] = [
-                {
-                    "emoji": emojize(f":{r['name']}:"),
-                    "name": r.get("name"),
-                    "count": r.get("count", 0),
-                    "users": [
-                        {
-                            "uid": uid,
-                            "display": render_user(uid, users),
-                            "avatar": (users.get(uid) or {}).get("image_24") or (users.get(uid) or {}).get("image_48"),
-                        }
-                        for uid in (r.get("users") or [])
-                    ],
-                }
-                for r in (m.get("reactions") or [])
-            ]
-            m["_files_rendered"] = render_files(m.get("files") or [], channel_dir)
-            m["_attachments_rendered"] = render_attachments(m.get("attachments") or [], users, channels)
         try:
             html = env.get_template("thread.html").render(
                 channel_id=cid,
@@ -337,18 +402,7 @@ def render_channel_html(channel_dir: Path, html_root: Path, users: dict, channel
             print(f"⚠️  {cid}/{tm['thread_ts']}: render failed ({type(e).__name__}: {e}) — skip", file=sys.stderr)
             continue
 
-    # channel index.html：列表 + 两种排序（数据全塞进，前端 JS 切排序）
-    for tm in threads_meta:
-        tm["_first_human"] = ts_to_human(tm["first_ts"])
-        tm["_latest_human"] = ts_to_human(tm["latest_reply_ts"])
-        # Prefer splitter-resolved bot-aware fields; legacy index.jsonl fall back to first_user.
-        tm["_first_user_display"] = tm.get("first_author_display") or render_user(tm.get("first_user"), users)
-        tm["_first_user_avatar"] = tm.get("first_author_avatar")
-        if not tm["_first_user_avatar"] and tm.get("first_user"):
-            uobj = users.get(tm["first_user"]) or {}
-            tm["_first_user_avatar"] = uobj.get("image_48") or uobj.get("image_72")
-        tm["_preview_rendered"] = expand_for_preview(tm.get("first_text_preview") or "", users, channels)
-
+    enrich_thread_meta(threads_meta, users, channels)
     html = env.get_template("channel_index.html").render(
         channel_id=cid,
         channel_name=channel_name,
@@ -363,49 +417,9 @@ def render_global(data_root: Path, html_root: Path, channels_meta: dict, users: 
 
     include 集合过滤要显示的类型，默认 {channel, dm, mpim} 全部。
     """
-    include = include or {"channel", "dm", "mpim"}
-    real_channels, dms, mpims = [], [], []
-
-    for cdir in (data_root / "channels").iterdir():
-        if not cdir.is_dir():
-            continue
-        cid = cdir.name
-        kind = kind_of(cid, channels_meta)
-        if kind not in include:
-            continue
-        n_threads = len(list((cdir / "threads").glob("*.jsonl"))) if (cdir / "threads").exists() else 0
-        cinfo = channels_meta.get(cid) or {}
-        item = {
-            "id": cid,
-            "name": cinfo.get("name") or cid,
-            "thread_count": n_threads,
-        }
-        if cinfo.get("is_im"):
-            # DM：拼对方 avatar
-            other_uid = cinfo.get("other_uid")
-            other_user = users.get(other_uid) if other_uid else None
-            item["avatar"] = (other_user or {}).get("image_72") if other_user else None
-            dms.append(item)
-        elif cinfo.get("is_mpim"):
-            # MPIM：拼成员 avatar 列表
-            members = cinfo.get("members") or []
-            item["avatars"] = [
-                (users.get(m) or {}).get("image_48")
-                for m in members[:5]
-                if (users.get(m) or {}).get("image_48")
-            ]
-            mpims.append(item)
-        else:
-            real_channels.append(item)
-
-    real_channels.sort(key=lambda c: c["name"])
-    dms.sort(key=lambda c: c["thread_count"], reverse=True)  # DM 按活跃度排
-    mpims.sort(key=lambda c: c["thread_count"], reverse=True)
-
+    groups = build_global_groups(data_root, channels_meta, users, include=include)
     html = env.get_template("global_index.html").render(
-        channels=real_channels,
-        dms=dms,
-        mpims=mpims,
+        **groups,
         generated_at=generated_at,
     )
     (html_root / "index.html").write_text(html, encoding="utf-8")
@@ -458,11 +472,12 @@ def main():
     args.html.mkdir(exist_ok=True)
     (args.html / "channels").mkdir(exist_ok=True)
 
-    generated_at = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z (UTC%z)")
+    # Epoch strings — the browser renders them in the visitor's local timezone.
+    generated_at = str(datetime.now().timestamp())
     fetched_at = ""
     for cand in (Path("raw/slackdump.sqlite"), args.data / "users.json"):
         if cand.exists():
-            fetched_at = datetime.fromtimestamp(cand.stat().st_mtime).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z (UTC%z)")
+            fetched_at = str(cand.stat().st_mtime)
             break
     env.globals["fetched_at"] = fetched_at
 

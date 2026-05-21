@@ -20,6 +20,10 @@ spec:
             app: slack-log-refresh
         spec:
           restartPolicy: Never
+          # Shared seLinux level — see deployment.yaml.
+          securityContext:
+            seLinuxOptions:
+              level: "s0"
           # Optional — pin to a node pool / tolerate taints on your cluster:
           # nodeSelector:
           #   your.cluster/nodepool: your-pool
@@ -39,7 +43,7 @@ spec:
                   topologyKey: kubernetes.io/hostname
           containers:
             - name: refresh
-              image: xieyanbo/slack-log:0.8.0
+              image: xieyanbo/slack-log:0.8.11
               command: ["sh", "scripts/refresh.sh"]
               volumeMounts:
                 - name: data

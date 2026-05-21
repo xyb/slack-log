@@ -229,8 +229,8 @@ h2 .meta { color: var(--text-faint); font-size: 0.85em; font-weight: normal; }
 </header>
 {% block body %}{% endblock %}
 <footer>
-  {% if fetched_at %}<span title="slackdump fetch time"><span data-i18n="footer_fetched">Data fetched</span> · {{ fetched_at }}</span>{% endif %}
-  {% if generated_at %}{% if fetched_at %} · {% endif %}<span title="page render/response time"><span data-i18n="footer_generated">Page generated</span> · {{ generated_at }}</span>{% endif %}
+  {% if fetched_at %}<span title="slackdump fetch time"><span data-i18n="footer_fetched">Data fetched</span> · <time class="lt" data-tz="1" data-ts="{{ fetched_at }}"></time></span>{% endif %}
+  {% if generated_at %}{% if fetched_at %} · {% endif %}<span title="page render/response time"><span data-i18n="footer_generated">Page generated</span> · <time class="lt" data-tz="1" data-ts="{{ generated_at }}"></time></span>{% endif %}
 </footer>
 
 <script>
@@ -334,6 +334,31 @@ h2 .meta { color: var(--text-faint); font-size: 0.85em; font-weight: normal; }
   });
 })();
 
+// localtime: the server emits timestamps as unix epochs; render each one in
+// the visitor's own browser timezone. data-fmt="time" → HH:MM:SS only,
+// data-fmt="date" → date only, data-tz="1" → append the IANA zone name.
+(function(){
+  function pad(n){ return String(n).padStart(2, '0'); }
+  function fmt(d){
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+      + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+  let tz = '';
+  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch(e){}
+  document.querySelectorAll('time.lt[data-ts]').forEach(el => {
+    const ep = parseFloat(el.dataset.ts);
+    if (!ep) return;
+    const d = new Date(ep * 1000);
+    if (isNaN(d.getTime())) return;
+    let s = fmt(d);
+    if (el.dataset.fmt === 'time') s = s.slice(11);
+    else if (el.dataset.fmt === 'date') s = s.slice(0, 10);
+    if (el.dataset.tz && tz) s += ' ' + tz;
+    el.textContent = s;
+    el.setAttribute('datetime', d.toISOString());
+  });
+})();
+
 // lightbox: thread-level multi-image browse, ESC / overlay-click close, ← → switch
 (function(){
   const links = document.querySelectorAll('a.file-image');
@@ -377,6 +402,9 @@ h2 .meta { color: var(--text-faint); font-size: 0.85em; font-weight: normal; }
   function next() { if (idx < cur.length - 1) { idx++; show(); } }
   links.forEach(a => {
     a.addEventListener('click', e => {
+      // Broken image — onerror rewrote href to the Slack permalink; let the
+      // browser follow it instead of opening the lightbox on a dead image.
+      if (a.classList.contains('broken')) return;
       e.preventDefault();
       const g = a.dataset.lightbox || 'default';
       open(g, groups[g].indexOf(a));

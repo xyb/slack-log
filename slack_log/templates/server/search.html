@@ -28,7 +28,7 @@
     <div style="font-size: 0.85em; color: var(--text-muted);">
       <a href="/channels/{{ h.channel_id }}" style="color: var(--link); text-decoration: none;">#{{ h.channel_name }}</a>
       · {{ h.user_name or "(unknown)" }}
-      · <span style="color: var(--text-faint);">{{ h.ts }}</span>
+      · <span style="color: var(--text-faint);"><time class="lt" data-ts="{{ h.ts }}"></time></span>
     </div>
     <div style="margin-top: 4px;">
       <a href="{{ h.url }}" style="color: var(--text); text-decoration: none;">

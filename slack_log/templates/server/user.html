@@ -49,7 +49,7 @@
       {% for m in day.msgs %}
       <li style="padding: 4px 12px; border-bottom: 1px solid var(--border-soft);">
         <a href="{{ m.url }}" style="color: var(--text); text-decoration: none; display: block;">
-          <span style="color: var(--text-faint); font-size: 0.82em; font-variant-numeric: tabular-nums; display: inline-block; min-width: 70px;">{{ m.time_short }}</span>
+          <span style="color: var(--text-faint); font-size: 0.82em; font-variant-numeric: tabular-nums; display: inline-block; min-width: 70px;"><time class="lt" data-ts="{{ m.ts }}" data-fmt="time"></time></span>
           <span style="color: var(--thread-preview-fg);">{{ m.text | truncate(200) }}</span>
         </a>
       </li>

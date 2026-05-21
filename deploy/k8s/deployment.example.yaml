@@ -17,6 +17,11 @@ spec:
       labels:
         app: slack-log
     spec:
+      # Shared seLinux level so server + refresh pods can both read
+      # the same PVC (EKS gives each pod a unique MCS category otherwise).
+      securityContext:
+        seLinuxOptions:
+          level: "s0"
       # Optional — pin to a node pool / tolerate taints on your cluster:
       # nodeSelector:
       #   your.cluster/nodepool: your-pool
@@ -29,7 +34,7 @@ spec:
         - name: slack-log
           # Public image on Docker Hub — slack-log is open source.
           # Pinned version (not :latest) so rollouts are reproducible.
-          image: xieyanbo/slack-log:0.8.0
+          image: xieyanbo/slack-log:0.8.11
           ports:
             - containerPort: 8770
           volumeMounts:

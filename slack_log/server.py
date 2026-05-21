@@ -18,13 +18,18 @@ import argparse
 import json
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
 from pathlib import Path
+
+# Fixed UTC+8 offset for grouping user-timeline messages onto a consistent
+# calendar day. A fixed offset avoids a tzdata dependency in the slim image;
+# per-viewer wall-clock times are rendered browser-side from raw epochs.
+_TIMELINE_TZ = timezone(timedelta(hours=8))
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import StarletteHTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from slack_log import indexer
@@ -50,7 +55,7 @@ def _avatar(u: dict) -> str | None:
 
 def _human_time(ts: str) -> str:
     try:
-        return datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M:%S")
+        return datetime.fromtimestamp(float(ts), _TIMELINE_TZ).strftime("%Y-%m-%d %H:%M:%S")
     except (ValueError, OSError):
         return ts
 
@@ -90,20 +95,22 @@ def create_app(
         users = json.loads((data_root / "users.json").read_text())
 
     def _fetched_at() -> str:
-        """When slackdump last archived. Falls back to data/users.json mtime."""
+        """slackdump's last archive time, as a unix epoch string. The browser
+        renders it in the visitor's local timezone (see the localtime JS)."""
         for cand in (
             Path("raw/slackdump.sqlite"),
             (data_root or Path("data")) / "users.json",
         ):
             try:
                 if cand.exists():
-                    return datetime.fromtimestamp(cand.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                    return str(cand.stat().st_mtime)
             except OSError:
                 pass
         return ""
 
     def _now() -> str:
-        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        """Current time as a unix epoch string — browser renders it local."""
+        return str(datetime.now().timestamp())
 
     def _kind_clause() -> tuple[str, list]:
         if not include:
@@ -258,29 +265,59 @@ def create_app(
             fetched_at=_fetched_at(), generated_at=_now(),
         ))
 
-    # Pretty URLs: /channels/<cid> and /channels/<cid>/threads/<ts> with no .html.
-    # Legacy .html paths keep working via the StaticFiles mount below.
+    # Pages are rendered dynamically from the jsonl data layer — no pre-built
+    # html/ tree. Template edits take effect immediately; the refresh pipeline
+    # only needs archive → split → attach → index, no render step.
     from fastapi.responses import FileResponse
+    from slack_log import render as R
+
+    channels_meta: dict = {}
+    if data_root and (data_root / "channels.json").exists():
+        channels_meta = json.loads((data_root / "channels.json").read_text())
+
+    def _channel_name(cid: str) -> str:
+        return (channels_meta.get(cid) or {}).get("name") or cid
+
+    @app.get("/", response_class=HTMLResponse)
+    def home():
+        groups = R.build_global_groups(data_root or Path("data"), channels_meta, users, include=include)
+        tmpl = env.get_template("global_index.html")
+        return HTMLResponse(tmpl.render(
+            **groups, fetched_at=_fetched_at(), generated_at=_now()))
 
     @app.get("/channels/{cid}", response_class=HTMLResponse)
     def channel_index(cid: str):
-        path = html_root / "channels" / cid / "index.html"
-        if not path.exists():
+        cdir = (data_root or Path("data")) / "channels" / cid
+        if not cdir.is_dir():
             raise HTTPException(status_code=404, detail=f"channel {cid} not found")
-        return FileResponse(path)
+        threads_meta = R.enrich_thread_meta(R.load_thread_meta(cdir), users, channels_meta)
+        tmpl = env.get_template("channel_index.html")
+        return HTMLResponse(tmpl.render(
+            channel_id=cid, channel_name=_channel_name(cid), threads=threads_meta,
+            fetched_at=_fetched_at(), generated_at=_now()))
 
     @app.get("/channels/{cid}/threads/{ts}", response_class=HTMLResponse)
     def thread_page(cid: str, ts: str):
-        if ts.endswith(".html"):  # legacy URL — let StaticFiles handle it
-            raise HTTPException(status_code=404)
-        path = html_root / "channels" / cid / "threads" / f"{ts}.html"
-        if not path.exists():
+        cdir = (data_root or Path("data")) / "channels" / cid
+        ttp = cdir / "threads" / f"{ts}.jsonl"
+        if not ttp.exists():
             raise HTTPException(status_code=404, detail=f"thread {ts} not found")
-        return FileResponse(path)
+        msgs = R.enrich_messages(R.load_thread(ttp), users, channels_meta, cdir)
+        tm = next((t for t in R.load_thread_meta(cdir) if t.get("thread_ts") == ts), None)
+        if tm is None:
+            tm = {"thread_ts": ts, "is_thread": len(msgs) > 1,
+                  "reply_count": max(0, len(msgs) - 1)}
+        tmpl = env.get_template("thread.html")
+        return HTMLResponse(tmpl.render(
+            channel_id=cid, channel_name=_channel_name(cid), thread_meta=tm,
+            messages=msgs, fetched_at=_fetched_at(), generated_at=_now()))
 
-    # Static mount LAST so it doesn't shadow /search /api/search /healthz.
-    if html_root.exists():
-        app.mount("/", StaticFiles(directory=str(html_root), html=True), name="static")
+    @app.get("/channels/{cid}/attachments/{fname}")
+    def attachment(cid: str, fname: str):
+        p = (data_root or Path("data")) / "channels" / cid / "attachments" / fname
+        if not p.is_file():
+            raise HTTPException(status_code=404)
+        return FileResponse(p)
 
     # Optional OIDC auth — activates only when OIDC_* env vars are present
     # (production). Dev and pytest run unauthenticated.

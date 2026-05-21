@@ -22,8 +22,8 @@
           <span class="preview">{{ t._preview_rendered | safe }}</span>
         </div>
         <div class="row2 meta">
-          <span data-i18n="ch_first_at">first</span> {{ t._first_human }}
-          {% if t.reply_count %}· <span data-i18n="ch_latest_reply">latest reply</span> {{ t._latest_human }} · 💬 {{ t.reply_count }}<span data-i18n="ch_reply_unit">replies</span>{% endif %}
+          <span data-i18n="ch_first_at">first</span> <time class="lt" data-ts="{{ t.first_ts }}"></time>
+          {% if t.reply_count %}· <span data-i18n="ch_latest_reply">latest reply</span> <time class="lt" data-ts="{{ t.latest_reply_ts }}"></time> · 💬 {{ t.reply_count }}<span data-i18n="ch_reply_unit">replies</span>{% endif %}
           {% if t.has_files %}· 📎{% endif %}
           <span class="enter" data-i18n="ch_enter">open thread →</span>
         </div>

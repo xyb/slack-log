@@ -10,8 +10,10 @@ production deployment must never be reachable without a login.
 
 from __future__ import annotations
 
+import logging
 import os
 import secrets
+import sys
 from urllib.parse import quote, urlparse
 
 from authlib.integrations.starlette_client import OAuth
@@ -23,6 +25,17 @@ from starlette.responses import RedirectResponse, Response
 # /healthz must stay open — k8s liveness/readiness probes hit it unauthenticated.
 PUBLIC_PATHS = frozenset({"/healthz"})
 PUBLIC_PREFIXES = ("/auth/",)
+
+# Access log → stdout. 12-factor: normal app output goes to stdout, stderr is
+# reserved for errors/crashes. Dedicated logger (not uvicorn's) so it isn't
+# coupled to uvicorn's stderr-bound error logger.
+_ACCESS_LOG = logging.getLogger("slack_log.access")
+if not _ACCESS_LOG.handlers:
+    _h = logging.StreamHandler(sys.stdout)
+    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    _ACCESS_LOG.addHandler(_h)
+    _ACCESS_LOG.setLevel(logging.INFO)
+    _ACCESS_LOG.propagate = False  # don't double-log via the root/uvicorn logger
 
 
 def _setup_oauth(client_id: str, client_secret: str, discovery_url: str) -> OAuth:
@@ -112,6 +125,35 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class AccessLogMiddleware(BaseHTTPMiddleware):
+    """Log every request with the authenticated user — who viewed what.
+
+    Sits outside AuthMiddleware so it also records the 302s of not-yet-logged-in
+    visitors. Skips /healthz + /auth/* to keep probe + login noise out.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path in PUBLIC_PATHS or any(path.startswith(p) for p in PUBLIC_PREFIXES):
+            return response
+        try:
+            user = request.session.get("user") or {}
+        except Exception:
+            user = {}
+        fwd = request.headers.get("x-forwarded-for", "")
+        _ACCESS_LOG.info(
+            "access path=%s status=%s user_email=%s user_name=%s ip=%s ua=%s",
+            path,
+            response.status_code,
+            user.get("email") or "-",
+            user.get("name") or user.get("sub") or "-",
+            fwd.split(",")[0].strip() or "-",
+            request.headers.get("user-agent", "-"),
+        )
+        return response
+
+
 def auth_config_from_env() -> dict | None:
     """OIDC config from env, or None when auth should stay off (dev / pytest)."""
     cid = os.environ.get("OIDC_CLIENT_ID")
@@ -144,10 +186,11 @@ def install_auth(
     app.add_route("/auth/login", _login, name="auth_login")
     app.add_route("/auth/callback", _callback, name="auth_callback")
     app.add_route("/auth/logout", _logout, methods=["POST"], name="auth_logout")
-    # Middleware runs outer-to-inner in reverse add order: add AuthMiddleware
-    # first (inner) so SessionMiddleware (added last, outer) populates the
-    # session before the guard reads it.
+    # Middleware runs outer-to-inner in reverse add order. Target execution:
+    #   SessionMiddleware (outer) → AccessLogMiddleware → AuthMiddleware → route
+    # so the access log can read the session and still see auth's 302s.
     app.add_middleware(AuthMiddleware)
+    app.add_middleware(AccessLogMiddleware)
     app.add_middleware(
         SessionMiddleware, secret_key=session_secret, https_only=cookie_secure
     )

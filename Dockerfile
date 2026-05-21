@@ -30,6 +30,9 @@ COPY scripts/ scripts/
 
 # Shared PVC mount point — search.db / html/ / data/ all live here.
 ENV SLACK_LOG_ROOT=/data
+# refresh.sh cd's into /data, so `python -m slack_log.*` needs the package
+# on the path regardless of cwd.
+ENV PYTHONPATH=/app
 EXPOSE 8770
 
 # Default role: the web server. The CronJob overrides command to refresh.sh.

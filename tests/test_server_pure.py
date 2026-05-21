@@ -103,25 +103,26 @@ def test_static_html_served_at_root(app_and_db):
     assert "index" in r.text
 
 
-def test_channel_url_without_html_suffix(app_and_db):
-    """/channels/<cid> should serve the channel index without the .html suffix."""
-    client, _, html = app_and_db
-    (html / "channels" / "C001" / "index.html").write_text("CHAN_INDEX")
+def test_channel_page_dynamic_render(app_and_db):
+    """/channels/<cid> renders the channel index dynamically from jsonl —
+    no pre-built html/ file."""
+    client, _, _ = app_and_db
     r = client.get("/channels/C001")
     assert r.status_code == 200
-    assert "CHAN_INDEX" in r.text
-    # Legacy .html URLs must keep working for external references.
-    r2 = client.get("/channels/C001/index.html")
-    assert r2.status_code == 200
+    assert "general" in r.text          # channel name rendered into the page
+    assert "<!DOCTYPE html>" in r.text  # a real rendered page, not a static stub
+    assert client.get("/channels/C_MISSING").status_code == 404
 
 
-def test_thread_url_without_html_suffix(app_and_db):
-    """/channels/<cid>/threads/<ts> should serve the thread page."""
-    client, _, html = app_and_db
-    (html / "channels" / "C001" / "threads" / "1700000000.000001.html").write_text("THREAD_PAGE")
+def test_thread_page_dynamic_render(app_and_db):
+    """/channels/<cid>/threads/<ts> renders the thread dynamically from the
+    thread jsonl — message text appears in the page."""
+    client, _, _ = app_and_db
     r = client.get("/channels/C001/threads/1700000000.000001")
     assert r.status_code == 200
-    assert "THREAD_PAGE" in r.text
+    assert "release" in r.text  # message body rendered
+    assert 'id="msg-1700000000.000001"' in r.text  # ref-id anchor
+    assert client.get("/channels/C001/threads/9999999999.000000").status_code == 404
 
 
 def test_api_search_url_has_no_html_suffix(app_and_db):

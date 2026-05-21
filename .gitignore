@@ -96,3 +96,9 @@ dmypy.json
 html-static/
 search.db
 search.db-*
+
+# k8s deploy: only *.example.yaml is tracked. Copy an example to the same
+# name without .example, fill in your real values, and apply that — the real
+# copy stays untracked so contributors never commit their own cluster config.
+deploy/k8s/*.yaml
+!deploy/k8s/*.example.yaml

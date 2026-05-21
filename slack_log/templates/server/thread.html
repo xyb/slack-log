@@ -18,7 +18,7 @@
   <div class="body">
     <div class="header">
       {% if m.user %}<a href="/user/{{ m.user }}" class="user-link">{% endif %}<span class="user">{{ m._user_display }}</span>{% if m.user %}</a>{% endif %}
-      <span class="time">{{ m._human_time }}</span>
+      <span class="time"><time class="lt" data-ts="{{ m.ts }}"></time></span>
       <span class="ref"><a href="#{{ m._ref_id }}" data-i18n-title="th_perma" title="permalink">#{{ m.ts }}</a></span>
       {% if m.edited %}<span class="meta" data-i18n="th_edited">(edited)</span>{% endif %}
     </div>
@@ -79,9 +79,9 @@
     <div class="files">
       {% for f in m._files_rendered %}
         {% if f.kind == 'image' %}
-        <a class="file-image" href="{{ f.rel }}" data-lightbox="thread-{{ thread_meta.thread_ts }}" title="{{ f.name }} · {{ f.size_human }}">
+        <a class="file-image" href="{{ f.rel }}" data-slack-url="{{ f.permalink }}" data-lightbox="thread-{{ thread_meta.thread_ts }}" title="{{ f.name }} · {{ f.size_human }}">
           <img src="{{ f.rel }}" alt="{{ f.fid }}" loading="lazy"
-               onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+               onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'; var a=this.closest('a.file-image'); if(a){a.classList.add('broken'); if(a.dataset.slackUrl){a.href=a.dataset.slackUrl;} a.target='_blank'; a.rel='noopener';}" />
           <span class="img-fallback" style="display:none">
             <span class="ifb-icon">🖼️</span>
             <span class="ifb-meta">
