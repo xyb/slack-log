@@ -7,7 +7,6 @@ The server has three responsibilities:
 """
 
 import json
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -266,8 +265,8 @@ def test_user_html_by_channel_collapses_dates(app_for_timeline):
     # Each date label appears once per channel-day pair.
     assert body.count("2024-01-03") == 1   # only in team-a
     assert body.count("2024-01-02") == 2   # team-a once + team-b once
-    # Time-only labels show up for repeated-day messages.
-    assert "12:00:01" in body
+    # Per-message times render client-side as HH:MM:SS from epochs.
+    assert 'data-fmt="time"' in body
 
 
 def test_user_html_timeline_collapses_repeats(app_for_timeline):
@@ -279,8 +278,9 @@ def test_user_html_timeline_collapses_repeats(app_for_timeline):
     # Each date appears exactly once per occurrence in segments.
     assert body.count("2024-01-03") == 1   # only in team-a #1
     assert body.count("2024-01-01") == 1   # only in team-a #2
-    # msg-a3b should render with HH:MM:SS only, not the full date again.
-    assert "12:00:01" in body
+    # Per-message times render client-side as HH:MM:SS only (data-fmt="time"),
+    # not the full date again.
+    assert 'data-fmt="time"' in body
 
 
 def test_user_unknown_returns_404(app_and_db):

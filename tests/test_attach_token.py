@@ -9,7 +9,6 @@ Token resolution order (highest priority first):
 The .env file format follows the de-facto standard parsed by python-dotenv.
 """
 
-import os
 from pathlib import Path
 
 import pytest

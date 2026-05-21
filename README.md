@@ -2,6 +2,8 @@
 
 # slack-log
 
+[![CI](https://github.com/xyb/slack-log/actions/workflows/ci.yml/badge.svg)](https://github.com/xyb/slack-log/actions/workflows/ci.yml)
+
 Turn a Slack workspace into a **static IRC-log-style HTML viewer** with permanent ref-id anchors,
 plus a **machine-friendly JSONL data layer** that AI agents and shell `grep` can read directly.
 

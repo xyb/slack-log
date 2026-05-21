@@ -5,7 +5,6 @@ Functions covered:
   newline-to-space, never leaves a dangling `<url` opener that would break HTML.
 """
 
-import pytest
 
 from slack_log.splitter import make_preview
 

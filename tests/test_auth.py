@@ -5,10 +5,7 @@ that must hold without one: env-driven on/off switch, and the AuthMiddleware
 gate (anonymous → 302 to login, /healthz + /auth/* stay public).
 """
 
-import json
-from pathlib import Path
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -151,7 +148,8 @@ def test_access_log_skips_healthz():
 
 def test_access_logger_targets_stdout():
     """12-factor: access log must write to stdout, not stderr."""
-    import logging, sys
+    import logging
+    import sys
     logger = logging.getLogger("slack_log.access")
     streams = [getattr(h, "stream", None) for h in logger.handlers]
     assert sys.stdout in streams, "access logger must have a stdout StreamHandler"

@@ -41,7 +41,7 @@ def test_full_pipeline_writes_users_channels_threads_and_index(
     # 4) index.jsonl has one entry per thread anchor, with mention-resolved preview
     c001_index = (out / "channels" / "C001" / "index.jsonl").read_text().splitlines()
     assert len(c001_index) == 2
-    entries = [json.loads(l) for l in c001_index]
+    entries = [json.loads(line) for line in c001_index]
     # the thread parent entry should report 1 reply
     thread_entry = next(e for e in entries if e["thread_ts"] == "1700000100.000002")
     assert thread_entry["msg_count"] == 2

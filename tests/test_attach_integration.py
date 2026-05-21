@@ -3,7 +3,6 @@
 import json
 from pathlib import Path
 
-import pytest
 
 from slack_log import attach
 

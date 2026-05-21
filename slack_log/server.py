@@ -19,13 +19,7 @@ import json
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
-
 from pathlib import Path
-
-# Fixed UTC+8 offset for grouping user-timeline messages onto a consistent
-# calendar day. A fixed offset avoids a tzdata dependency in the slim image;
-# per-viewer wall-clock times are rendered browser-side from raw epochs.
-_TIMELINE_TZ = timezone(timedelta(hours=8))
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import StarletteHTTPException
@@ -33,6 +27,11 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from slack_log import indexer
+
+# Fixed UTC+8 offset for grouping user-timeline messages onto a consistent
+# calendar day. A fixed offset avoids a tzdata dependency in the slim image;
+# per-viewer wall-clock times are rendered browser-side from raw epochs.
+_TIMELINE_TZ = timezone(timedelta(hours=8))
 
 
 def _hit_url(hit: dict) -> str:
@@ -245,7 +244,7 @@ def create_app(
     @app.get("/user/{uid}", response_class=HTMLResponse)
     def user_page(
         uid: str,
-        view: str = Query(default="timeline", regex="^(timeline|by_channel)$"),
+        view: str = Query(default="timeline", pattern="^(timeline|by_channel)$"),
         limit: int = Query(default=500, ge=1, le=5000),
     ):
         u = users.get(uid)

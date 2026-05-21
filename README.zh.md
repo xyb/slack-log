@@ -2,6 +2,8 @@
 
 # slack-log
 
+[![CI](https://github.com/xyb/slack-log/actions/workflows/ci.yml/badge.svg)](https://github.com/xyb/slack-log/actions/workflows/ci.yml)
+
 把一个 Slack workspace 变成**带永久 ref-id 锚点的静态 IRC log 风格 HTML viewer**，
 同时输出一份**给 AI / shell `grep` 直接读的 JSONL 数据层**。
 

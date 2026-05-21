@@ -25,6 +25,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8.0"]
+dev = ["ruff>=0.15"]
 
 [project.scripts]
 slack-log-split  = "slack_log.splitter:main"
@@ -45,3 +46,7 @@ slack_log = ["templates/static/*.html", "templates/server/*.html"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
