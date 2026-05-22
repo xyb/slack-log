@@ -39,6 +39,6 @@ ENV PYTHONPATH=/app
 EXPOSE 8770
 
 # Default role: the web server. The CronJob overrides command to refresh.sh.
-CMD ["uvicorn", "slack_log.server:create_app_from_env", "--factory", \
+CMD ["uvicorn", "slack_log.web.app:create_app_from_env", "--factory", \
      "--host", "0.0.0.0", "--port", "8770", \
      "--proxy-headers", "--forwarded-allow-ips", "*"]

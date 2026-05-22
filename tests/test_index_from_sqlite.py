@@ -12,13 +12,13 @@ import json
 import sqlite3
 from pathlib import Path
 
-from slack_log import indexer
+from slack_log.pipeline import index
 
 
 # --- iter_messages_from_sqlite --------------------------------------------
 
 def test_iter_messages_from_sqlite_shape(sqlite_with_threads: Path):
-    rows = list(indexer.iter_messages_from_sqlite(sqlite_with_threads))
+    rows = list(index.iter_messages_from_sqlite(sqlite_with_threads))
     by_ts = {r["ts"]: r for r in rows}
     # 4 valid messages; the corrupt-DATA row is dropped.
     assert set(by_ts) == {
@@ -38,18 +38,18 @@ def test_iter_messages_from_sqlite_shape(sqlite_with_threads: Path):
 
 def test_team_build_fills_messages_fts(sqlite_with_threads: Path, tmp_path: Path):
     db = tmp_path / "search.db"
-    stats = indexer.build_index(sqlite_with_threads, db, profile="team")
+    stats = index.build_index(sqlite_with_threads, db, profile="team")
     assert stats["indexed"] == 4  # corrupt row excluded
 
-    conn = indexer.open_db(db)
-    hits = indexer.search(conn, "parent")
+    conn = index.open_db(db)
+    hits = index.search(conn, "parent")
     conn.close()
     assert any("parent" in h["text"] for h in hits)
 
 
 def test_team_build_fills_message_raw(sqlite_with_threads: Path, tmp_path: Path):
     db = tmp_path / "search.db"
-    indexer.build_index(sqlite_with_threads, db, profile="team")
+    index.build_index(sqlite_with_threads, db, profile="team")
     conn = sqlite3.connect(db)
     rows = conn.execute(
         "SELECT channel_id, ts, thread_ts, data FROM message_raw ORDER BY ts"
@@ -68,7 +68,7 @@ def test_team_build_fills_message_raw(sqlite_with_threads: Path, tmp_path: Path)
 
 def test_team_build_fills_threads(sqlite_with_threads: Path, tmp_path: Path):
     db = tmp_path / "search.db"
-    indexer.build_index(sqlite_with_threads, db, profile="team")
+    index.build_index(sqlite_with_threads, db, profile="team")
     conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row
     rows = {(r["channel_id"], r["thread_ts"]): r
@@ -95,7 +95,7 @@ def test_team_build_fills_threads(sqlite_with_threads: Path, tmp_path: Path):
 
 def test_team_build_fills_channels_and_users(sqlite_with_threads: Path, tmp_path: Path):
     db = tmp_path / "search.db"
-    indexer.build_index(sqlite_with_threads, db, profile="team")
+    index.build_index(sqlite_with_threads, db, profile="team")
     conn = sqlite3.connect(db)
     chans = {r[0]: r for r in conn.execute(
         "SELECT id, name, kind, thread_count FROM channels")}
@@ -112,7 +112,7 @@ def test_team_build_fills_channels_and_users(sqlite_with_threads: Path, tmp_path
 def test_team_build_include_filter(sqlite_with_threads: Path, tmp_path: Path):
     """include={'dm'} drops every channel — both fixture channels are real."""
     db = tmp_path / "search.db"
-    stats = indexer.build_index(sqlite_with_threads, db, include={"dm"}, profile="team")
+    stats = index.build_index(sqlite_with_threads, db, include={"dm"}, profile="team")
     assert stats["indexed"] == 0
     conn = sqlite3.connect(db)
     assert conn.execute("SELECT count(*) FROM threads").fetchone()[0] == 0
@@ -123,15 +123,15 @@ def test_team_build_include_filter(sqlite_with_threads: Path, tmp_path: Path):
 
 def test_team_and_personal_index_same_messages(sqlite_with_threads: Path, tmp_path: Path):
     """The team ETL and the personal jsonl path index the same message set."""
-    from slack_log import splitter
+    from slack_log.pipeline.split import split
 
     data = tmp_path / "data"
     conn = sqlite3.connect(sqlite_with_threads)
-    splitter.split(conn, data)
+    split(conn, data)
     conn.close()
 
     personal_db = tmp_path / "personal.db"
     team_db = tmp_path / "team.db"
-    p = indexer.build_index(data, personal_db, profile="personal")
-    t = indexer.build_index(sqlite_with_threads, team_db, profile="team")
+    p = index.build_index(data, personal_db, profile="personal")
+    t = index.build_index(sqlite_with_threads, team_db, profile="team")
     assert p["indexed"] == t["indexed"] == 4

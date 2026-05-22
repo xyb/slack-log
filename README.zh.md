@@ -126,12 +126,8 @@ server 只依赖 `ArchiveStore`；`JsonlStore` 和 `SqliteStore` 是两个后端
 | `slack_log/core/` | 共享层——`slackdump_db`（读归档 SQLite）+ `text`（Slack 文本处理）|
 | `slack_log/store/` | `ArchiveStore` 抽象 + `JsonlStore`（个人）/ `SqliteStore`（团队）|
 | `slack_log/config.py` | `Profile` 枚举 + `Config.from_env` |
-| `slack_log/splitter.py` | `slackdump.sqlite` → 每 thread 一份 JSONL（个人版）|
-| `slack_log/indexer.py` | 构建 `search.db`——FTS5 索引，外加团队版 ETL |
-| `slack_log/attach.py` | 按 mime/size 策略差异化下载附件 |
-| `slack_log/render.py` | 共享渲染函数 + 静态 HTML 导出器 |
-| `slack_log/server.py` | FastAPI app——只依赖 `ArchiveStore` |
-| `slack_log/auth.py` | 可选 OIDC SSO 中间件 + 访问日志 |
+| `slack_log/pipeline/` | 数据处理——`split` · `attach` · `index` · `render` |
+| `slack_log/web/` | 服务层——`app`（FastAPI）· `auth`（OIDC SSO）· `sync`（刷新）|
 | `deploy/k8s/` | 脱敏的 Kubernetes 部署文件（`*.example.yaml`）|
 | `docs/` | `personal.md` · `team.md` · `architecture.md` · `CICD.md` |
 

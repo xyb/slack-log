@@ -18,7 +18,7 @@ from abc import ABC, abstractmethod
 from contextlib import closing
 from pathlib import Path
 
-from slack_log import indexer
+from slack_log.pipeline import index
 
 
 class ArchiveStore(ABC):
@@ -83,7 +83,7 @@ class ArchiveStore(ABC):
                include: set[str] | None = None) -> list[dict]:
         """FTS5 full-text search over search.db."""
         with closing(sqlite3.connect(self.search_db)) as conn:
-            return indexer.search(conn, q, limit=limit, include=include)
+            return index.search(conn, q, limit=limit, include=include)
 
     def user_messages(self, uid: str, limit: int = 500,
                       include: set[str] | None = None) -> list[dict]:
@@ -107,5 +107,5 @@ class ArchiveStore(ABC):
             cols = [d[0] for d in cur.description]
             rows = [dict(zip(cols, r)) for r in cur.fetchall()]
         for r in rows:
-            r["text"] = indexer.join_cjk(r["text"])
+            r["text"] = index.join_cjk(r["text"])
         return rows

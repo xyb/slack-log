@@ -30,11 +30,11 @@ from fastapi.exceptions import StarletteHTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from slack_log import render
-from slack_log.auth import auth_config_from_env, install_auth
 from slack_log.config import Config
+from slack_log.pipeline import render
 from slack_log.store import ArchiveStore, JsonlStore, SqliteStore
-from slack_log.sync import SyncManager, scheduler_loop
+from slack_log.web.auth import auth_config_from_env, install_auth
+from slack_log.web.sync import SyncManager, scheduler_loop
 
 # Fixed UTC+8 offset for grouping user-timeline messages onto a consistent
 # calendar day. A fixed offset avoids a tzdata dependency in the slim image;
@@ -83,7 +83,7 @@ def create_app(
     """
     include = set(include) if include else None
     if templates_root is None:
-        templates_root = Path(__file__).parent / "templates"
+        templates_root = Path(__file__).parent.parent / "templates"
     # Two flavors live side-by-side: static/ (relative .html for `python -m
     # http.server`) and server/ (no-suffix absolute URLs for this server).
     if (templates_root / "server").is_dir():
@@ -103,7 +103,7 @@ def create_app(
     # Sync manager — serialises the refresh pipeline; the background
     # scheduler and POST /sync both go through it (see sync.py).
     if sync_script is None:
-        sync_script = Path(__file__).parent.parent / "scripts" / "refresh.sh"
+        sync_script = Path(__file__).parent.parent.parent / "scripts" / "refresh.sh"
     sync_manager = SyncManager(script=sync_script, cwd=sync_script.parent.parent)
 
     @asynccontextmanager

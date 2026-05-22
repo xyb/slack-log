@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from slack_log import indexer, server
+from slack_log.pipeline import index
+from slack_log.web.app import create_app_from_env
 from slack_log.config import Config, Profile
 
 
@@ -70,13 +71,13 @@ def test_create_app_from_env_team_serves_from_sqlite(
     """SLACK_LOG_PROFILE=team → create_app_from_env builds a SqliteStore-backed
     app that serves pages straight from search.db."""
     db = tmp_path / "search.db"
-    indexer.build_index(sqlite_with_threads, db, profile="team")
+    index.build_index(sqlite_with_threads, db, profile="team")
     for k in ("OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET", "OIDC_DISCOVERY_URL"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("SLACK_LOG_PROFILE", "team")
     monkeypatch.setenv("SLACK_LOG_DB", str(db))
 
-    client = TestClient(server.create_app_from_env())
+    client = TestClient(create_app_from_env())
     assert client.get("/").status_code == 200
     assert client.get("/channels/C001").status_code == 200
     thread = client.get("/channels/C001/threads/1700000100.000002")
@@ -88,20 +89,20 @@ def test_create_app_from_env_personal_serves_from_jsonl(
     sqlite_with_threads: Path, tmp_path: Path, monkeypatch
 ):
     """Default profile → JsonlStore-backed app reading the data/ jsonl layer."""
-    from slack_log import splitter
+    from slack_log.pipeline.split import split
 
     data = tmp_path / "data"
     conn = sqlite3.connect(sqlite_with_threads)
-    splitter.split(conn, data)
+    split(conn, data)
     conn.close()
     db = tmp_path / "search.db"
-    indexer.build_index(data, db, profile="personal")
+    index.build_index(data, db, profile="personal")
     for k in ("OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET", "OIDC_DISCOVERY_URL"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.delenv("SLACK_LOG_PROFILE", raising=False)
     monkeypatch.setenv("SLACK_LOG_DB", str(db))
     monkeypatch.setenv("SLACK_LOG_DATA", str(data))
 
-    client = TestClient(server.create_app_from_env())
+    client = TestClient(create_app_from_env())
     assert client.get("/").status_code == 200
     assert client.get("/channels/C001").status_code == 200

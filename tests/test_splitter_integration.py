@@ -4,7 +4,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from slack_log import splitter
+from slack_log.pipeline.split import split
 
 
 def test_full_pipeline_writes_users_channels_threads_and_index(
@@ -14,7 +14,7 @@ def test_full_pipeline_writes_users_channels_threads_and_index(
     out.mkdir()
     conn = sqlite3.connect(sqlite_with_threads)
 
-    splitter.split(conn, out)
+    split(conn, out)
     conn.close()
 
     # 1) users.json populated with Alice
@@ -80,7 +80,7 @@ def test_jsonl_sorted_when_table_order_is_not(tmp_path: Path):
     conn.commit()
 
     out = tmp_path / "data"
-    splitter.split(conn, out)
+    split(conn, out)
     conn.close()
 
     lines = (out / "channels" / "C1" / "threads" / "100.000001.jsonl").read_text().splitlines()

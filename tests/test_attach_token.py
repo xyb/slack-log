@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from slack_log import attach
+from slack_log.pipeline import attach
 
 
 @pytest.fixture(autouse=True)

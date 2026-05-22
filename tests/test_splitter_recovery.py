@@ -3,7 +3,7 @@
 import sqlite3
 from pathlib import Path
 
-from slack_log import splitter
+from slack_log.pipeline.split import split
 
 
 def test_invalid_json_in_one_thread_does_not_stop_others(sqlite_with_threads: Path, tmp_path: Path, capsys):
@@ -16,7 +16,7 @@ def test_invalid_json_in_one_thread_does_not_stop_others(sqlite_with_threads: Pa
     out_root.mkdir()
 
     conn = sqlite3.connect(sqlite_with_threads)
-    stats = splitter.split(conn, out_root)
+    stats = split(conn, out_root)
     conn.close()
 
     # 3 channels of valid thread anchors should still produce jsonl files.

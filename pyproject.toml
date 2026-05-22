@@ -28,11 +28,11 @@ test = ["pytest>=8.0"]
 dev = ["ruff>=0.15"]
 
 [project.scripts]
-slack-log-split  = "slack_log.splitter:main"
-slack-log-attach = "slack_log.attach:main"
-slack-log-render = "slack_log.render:main"
-slack-log-index  = "slack_log.indexer:main"
-slack-log-serve  = "slack_log.server:main"
+slack-log-split  = "slack_log.pipeline.split:main"
+slack-log-attach = "slack_log.pipeline.attach:main"
+slack-log-render = "slack_log.pipeline.render:main"
+slack-log-index  = "slack_log.pipeline.index:main"
+slack-log-serve  = "slack_log.web.app:main"
 
 [project.urls]
 Repository = "https://github.com/xyb/slack-log"

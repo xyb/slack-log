@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from slack_log import attach
+from slack_log.pipeline import attach
 
 
 def test_one_file_exception_does_not_stop_channel(tmp_path: Path, monkeypatch):

@@ -151,7 +151,7 @@ def render_files(files: list, att_dir: Path) -> list:
 
 def enrich_messages(msgs: list[dict], users: dict, channels: dict, att_dir: Path) -> list[dict]:
     """Attach the _-prefixed render fields each message needs for thread.html.
-    Shared by static render (render.py) and dynamic render (server.py).
+    Shared by the static-HTML render and the dynamic web server.
     att_dir is the channel's attachments directory (see render_files)."""
     for m in msgs:
         m["_ref_id"] = f"msg-{m['ts']}"
@@ -342,7 +342,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", type=Path, default=Path("./data"))
     ap.add_argument("--html", type=Path, default=Path("./html"))
-    ap.add_argument("--templates", type=Path, default=Path(__file__).parent / "templates")
+    ap.add_argument("--templates", type=Path,
+                    default=Path(__file__).parent.parent / "templates")
     ap.add_argument("--flavor", choices=("server", "static"), default="server",
                     help="server: no-suffix absolute URLs (FastAPI). static: relative .html links (http.server).")
     ap.add_argument(

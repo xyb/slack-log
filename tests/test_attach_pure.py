@@ -2,7 +2,7 @@
 
 import pytest
 
-from slack_log.attach import should_download
+from slack_log.pipeline.attach import should_download
 
 
 @pytest.mark.parametrize("mimetype,size,expected", [

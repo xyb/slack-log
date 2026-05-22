@@ -43,19 +43,19 @@ help:
 personal-build: fetch split attach index
 
 personal-serve:
-	$(PY) -m slack_log.server --profile personal --db ./search.db --data ./data \
+	$(PY) -m slack_log.web.app --profile personal --db ./search.db --data ./data \
 	    --host $(HOST) --port $(PORT) $(_INCLUDE_ARG)
 
 render-static:
 	rm -rf html-static
-	$(PY) -m slack_log.render --flavor=static --html=./html-static --include=channel
+	$(PY) -m slack_log.pipeline.render --flavor=static --html=./html-static --include=channel
 
 # --- team profile ---------------------------------------------------------
 
 team-build: fetch team-index
 
 team-serve:
-	$(PY) -m slack_log.server --profile team --db ./search.db \
+	$(PY) -m slack_log.web.app --profile team --db ./search.db \
 	    --host $(HOST) --port $(PORT) $(_INCLUDE_ARG)
 
 # --- building blocks ------------------------------------------------------
@@ -73,18 +73,18 @@ reconcile:
 	    -chan-types=public_channel,private_channel,im,mpim
 
 split:
-	$(PY) -m slack_log.splitter raw/slackdump.sqlite -o ./data
+	$(PY) -m slack_log.pipeline.split raw/slackdump.sqlite -o ./data
 
 attach:
-	$(PY) -m slack_log.attach ./data
+	$(PY) -m slack_log.pipeline.attach ./data
 
 # personal: index from the jsonl layer
 index:
-	$(PY) -m slack_log.indexer --profile personal --data ./data --db ./search.db $(_INCLUDE_ARG)
+	$(PY) -m slack_log.pipeline.index --profile personal --data ./data --db ./search.db $(_INCLUDE_ARG)
 
 # team: ETL straight from slackdump.sqlite — no jsonl in between
 team-index:
-	$(PY) -m slack_log.indexer --profile team --sqlite raw/slackdump.sqlite --db ./search.db $(_INCLUDE_ARG)
+	$(PY) -m slack_log.pipeline.index --profile team --sqlite raw/slackdump.sqlite --db ./search.db $(_INCLUDE_ARG)
 
 test:
 	$(PY) -m pytest

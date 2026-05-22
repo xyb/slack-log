@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from slack_log import render
+from slack_log.pipeline import render
 
 
 @pytest.fixture
@@ -55,7 +55,7 @@ def minimal_data(tmp_path: Path) -> Path:
 
 def test_main_renders_full_site(minimal_data: Path, tmp_path: Path, monkeypatch):
     html = tmp_path / "html"
-    templates = Path(render.__file__).parent / "templates"
+    templates = Path(render.__file__).parent.parent / "templates"
 
     monkeypatch.setattr(sys, "argv", [
         "render.py",
@@ -86,7 +86,7 @@ def test_main_renders_full_site(minimal_data: Path, tmp_path: Path, monkeypatch)
 def test_main_with_include_filter(minimal_data: Path, tmp_path: Path, monkeypatch):
     """--include=dm should skip the only channel (which is is_channel=True)."""
     html = tmp_path / "html"
-    templates = Path(render.__file__).parent / "templates"
+    templates = Path(render.__file__).parent.parent / "templates"
 
     monkeypatch.setattr(sys, "argv", [
         "render.py",
@@ -108,7 +108,7 @@ def test_static_html_links_relative_with_html_suffix(minimal_data: Path, tmp_pat
     """Static-mode render must produce links a pure `python -m http.server` can serve:
     .html suffix on threads + relative paths from each page back to the index."""
     html = tmp_path / "html"
-    templates = Path(render.__file__).parent / "templates"
+    templates = Path(render.__file__).parent.parent / "templates"
 
     monkeypatch.setattr(sys, "argv", [
         "render.py", "--data", str(minimal_data), "--html", str(html),
@@ -138,7 +138,7 @@ def test_static_site_self_contained(minimal_data: Path, tmp_path: Path, monkeypa
     """Every relative href produced by render.main() must resolve to a real file."""
     import re
     html = tmp_path / "html"
-    templates = Path(render.__file__).parent / "templates"
+    templates = Path(render.__file__).parent.parent / "templates"
 
     monkeypatch.setattr(sys, "argv", [
         "render.py", "--data", str(minimal_data), "--html", str(html),
@@ -160,7 +160,7 @@ def test_static_site_self_contained(minimal_data: Path, tmp_path: Path, monkeypa
 
 def test_footer_includes_fetched_and_generated(minimal_data: Path, tmp_path: Path, monkeypatch):
     html = tmp_path / "html"
-    templates = Path(render.__file__).parent / "templates"
+    templates = Path(render.__file__).parent.parent / "templates"
     monkeypatch.setattr(sys, "argv", [
         "render.py", "--data", str(minimal_data), "--html", str(html),
         "--templates", str(templates),

@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from slack_log import render
+from slack_log.pipeline import render
 
 
 # --- format_bytes ---

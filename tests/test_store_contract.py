@@ -18,8 +18,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from slack_log import indexer, server, splitter
+from slack_log.pipeline import index
+from slack_log.pipeline.split import split
 from slack_log.store import JsonlStore, SqliteStore
+from slack_log.web.app import create_app
 
 
 @pytest.fixture
@@ -28,15 +30,15 @@ def archive(sqlite_with_threads: Path, tmp_path: Path):
     # personal: slackdump.sqlite → splitter → data/ → indexer → personal.db
     data = tmp_path / "data"
     conn = sqlite3.connect(sqlite_with_threads)
-    splitter.split(conn, data)
+    split(conn, data)
     conn.close()
     personal_db = tmp_path / "personal.db"
-    indexer.build_index(data, personal_db, profile="personal")
+    index.build_index(data, personal_db, profile="personal")
     jsonl_store = JsonlStore(data_root=data, db_path=personal_db)
 
     # team: slackdump.sqlite → indexer ETL → team.db
     team_db = tmp_path / "team.db"
-    indexer.build_index(sqlite_with_threads, team_db, profile="team")
+    index.build_index(sqlite_with_threads, team_db, profile="team")
     sqlite_store = SqliteStore(db_path=team_db)
 
     return jsonl_store, sqlite_store
@@ -155,7 +157,7 @@ def test_stores_agree_on_users(archive):
 def test_team_server_serves_pages(archive):
     """create_app on a SqliteStore renders home / channel / thread pages."""
     _, sqlite_store = archive
-    client = TestClient(server.create_app(sqlite_store))
+    client = TestClient(create_app(sqlite_store))
 
     assert client.get("/").status_code == 200
 

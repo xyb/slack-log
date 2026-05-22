@@ -1,4 +1,4 @@
-"""Tests for slack_log.auth — the OIDC guard.
+"""Tests for slack_log.web.auth — the OIDC guard.
 
 Full OAuth round-trips need a live authentik, so these tests cover the parts
 that must hold without one: env-driven on/off switch, and the AuthMiddleware
@@ -9,7 +9,9 @@ gate (anonymous → 302 to login, /healthz + /auth/* stay public).
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from slack_log import auth, indexer, server
+from slack_log.pipeline import index
+from slack_log.web import auth
+from slack_log.web.app import create_app
 from slack_log.store import JsonlStore
 
 
@@ -96,8 +98,8 @@ def test_auth_routes_not_shadowed_by_static_mount(tmp_path, monkeypatch):
     (data / "users.json").write_text("{}")
     (data / "channels.json").write_text("{}")
     db = tmp_path / "search.db"
-    indexer.build_index(data, db)
-    app = server.create_app(JsonlStore(data_root=data, db_path=db))
+    index.build_index(data, db)
+    app = create_app(JsonlStore(data_root=data, db_path=db))
     client = TestClient(app, raise_server_exceptions=False)
     # /auth/login must reach the auth handler. If StaticFiles shadowed it the
     # response is 404; reaching the handler yields 302 (or 500 when the fake
@@ -162,8 +164,8 @@ def test_server_create_app_no_auth_without_env(tmp_path, monkeypatch):
     (data / "users.json").write_text("{}")
     (data / "channels.json").write_text("{}")
     db = tmp_path / "search.db"
-    indexer.build_index(data, db)
-    app = server.create_app(JsonlStore(data_root=data, db_path=db))
+    index.build_index(data, db)
+    app = create_app(JsonlStore(data_root=data, db_path=db))
     client = TestClient(app)
     # No auth → /search reachable directly, no redirect to login.
     r = client.get("/search", follow_redirects=False)

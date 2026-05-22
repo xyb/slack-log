@@ -1,4 +1,4 @@
-"""Unit tests for slack_log.indexer — FTS5 build + search.
+"""Unit tests for slack_log.pipeline.index — FTS5 build + search.
 
 Indexer reads thread JSONL files produced by splitter (data/channels/<cid>/threads/*.jsonl)
 plus users.json + channels.json, normalizes each message (resolves @mention uids to display
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from slack_log import indexer
+from slack_log.pipeline import index
 
 
 @pytest.fixture
@@ -57,7 +57,7 @@ def minimal_data(tmp_path: Path) -> Path:
 
 def test_open_db_creates_schema(tmp_path: Path):
     db = tmp_path / "search.db"
-    conn = indexer.open_db(db)
+    conn = index.open_db(db)
     cur = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='messages'"
     )
@@ -66,7 +66,7 @@ def test_open_db_creates_schema(tmp_path: Path):
 
 
 def test_iter_messages_yields_normalized_records(minimal_data: Path):
-    rows = list(indexer.iter_messages(minimal_data))
+    rows = list(index.iter_messages(minimal_data))
     by_ts = {r["ts"]: r for r in rows}
 
     # Corrupt jsonl line silently skipped, valid records present.
@@ -84,7 +84,7 @@ def test_iter_messages_yields_normalized_records(minimal_data: Path):
 
 
 def test_iter_messages_resolves_mentions(minimal_data: Path):
-    rows = {r["ts"]: r for r in indexer.iter_messages(minimal_data)}
+    rows = {r["ts"]: r for r in index.iter_messages(minimal_data)}
     reply = rows["1700000010.000002"]
     # <@U001> must resolve to display name so a search for "alice" hits the reply.
     assert "alice" in reply["text"].lower()
@@ -94,7 +94,7 @@ def test_iter_messages_resolves_mentions(minimal_data: Path):
 def test_search_returns_user_id_for_uid_filtering(minimal_data: Path, tmp_path: Path):
     """user_id must be stored so /user/<uid> can filter precisely (handles homonyms)."""
     db = tmp_path / "search.db"
-    indexer.build_index(minimal_data, db)
+    index.build_index(minimal_data, db)
     conn = sqlite3.connect(db)
     rows = conn.execute("SELECT user_id, user_name FROM messages WHERE user_id != ''").fetchall()
     conn.close()
@@ -104,7 +104,7 @@ def test_search_returns_user_id_for_uid_filtering(minimal_data: Path, tmp_path: 
 
 def test_build_index_populates_fts(minimal_data: Path, tmp_path: Path):
     db = tmp_path / "search.db"
-    stats = indexer.build_index(minimal_data, db)
+    stats = index.build_index(minimal_data, db)
     assert stats["indexed"] >= 3
 
     conn = sqlite3.connect(db)
@@ -115,9 +115,9 @@ def test_build_index_populates_fts(minimal_data: Path, tmp_path: Path):
 
 def test_search_returns_english_hits(minimal_data: Path, tmp_path: Path):
     db = tmp_path / "search.db"
-    indexer.build_index(minimal_data, db)
-    conn = indexer.open_db(db)
-    hits = indexer.search(conn, "slackdump")
+    index.build_index(minimal_data, db)
+    conn = index.open_db(db)
+    hits = index.search(conn, "slackdump")
     assert len(hits) >= 1
     assert any("slackdump" in h["text"].lower() for h in hits)
     # Hit metadata is enough to deep-link to the existing static HTML.
@@ -130,11 +130,11 @@ def test_search_returns_english_hits(minimal_data: Path, tmp_path: Path):
 
 def test_search_matches_chinese_text(minimal_data: Path, tmp_path: Path):
     db = tmp_path / "search.db"
-    indexer.build_index(minimal_data, db)
-    conn = indexer.open_db(db)
+    index.build_index(minimal_data, db)
+    conn = index.open_db(db)
     # FTS5 unicode61 tokenizer splits CJK char-by-char; querying any single
     # char (or short phrase) inside a Chinese sentence should still hit.
-    hits = indexer.search(conn, "发布")
+    hits = index.search(conn, "发布")
     assert len(hits) >= 1
     assert any("发布" in h["text"] for h in hits)
     conn.close()
@@ -142,9 +142,9 @@ def test_search_matches_chinese_text(minimal_data: Path, tmp_path: Path):
 
 def test_search_returns_snippet_with_marks(minimal_data: Path, tmp_path: Path):
     db = tmp_path / "search.db"
-    indexer.build_index(minimal_data, db)
-    conn = indexer.open_db(db)
-    hits = indexer.search(conn, "slackdump")
+    index.build_index(minimal_data, db)
+    conn = index.open_db(db)
+    hits = index.search(conn, "slackdump")
     snippet = hits[0]["snippet"]
     # Snippet must mark the matched term so the HTML renderer can highlight it.
     assert "<mark>" in snippet and "</mark>" in snippet
@@ -168,19 +168,19 @@ def test_search_returns_snippet_with_marks(minimal_data: Path, tmp_path: Path):
 def test_search_does_not_crash_on_special_syntax(minimal_data: Path, tmp_path: Path, q: str):
     """FTS5 query operators must never reach the engine raw — bare input would 500."""
     db = tmp_path / "search.db"
-    indexer.build_index(minimal_data, db)
-    conn = indexer.open_db(db)
+    index.build_index(minimal_data, db)
+    conn = index.open_db(db)
     # Either zero hits or some hits — never an OperationalError.
-    indexer.search(conn, q)
+    index.search(conn, q)
     conn.close()
 
 
 def test_search_at_mention_matches_user(minimal_data: Path, tmp_path: Path):
     """`@alice` should still find messages that mention alice."""
     db = tmp_path / "search.db"
-    indexer.build_index(minimal_data, db)
-    conn = indexer.open_db(db)
-    hits = indexer.search(conn, "@alice")
+    index.build_index(minimal_data, db)
+    conn = index.open_db(db)
+    hits = index.search(conn, "@alice")
     assert len(hits) >= 1
     conn.close()
 
@@ -212,7 +212,7 @@ def mixed_kinds_data(tmp_path: Path) -> Path:
 
 
 def test_iter_messages_attaches_kind(mixed_kinds_data: Path):
-    rows = list(indexer.iter_messages(mixed_kinds_data))
+    rows = list(index.iter_messages(mixed_kinds_data))
     by_cid = {r["channel_id"]: r["kind"] for r in rows}
     assert by_cid["C001"] == "channel"
     assert by_cid["D001"] == "dm"
@@ -221,7 +221,7 @@ def test_iter_messages_attaches_kind(mixed_kinds_data: Path):
 
 def test_build_index_include_channel_only(mixed_kinds_data: Path, tmp_path: Path):
     db = tmp_path / "search.db"
-    indexer.build_index(mixed_kinds_data, db, include={"channel"})
+    index.build_index(mixed_kinds_data, db, include={"channel"})
     conn = sqlite3.connect(db)
     kinds = {r[0] for r in conn.execute("SELECT kind FROM messages").fetchall()}
     conn.close()
@@ -230,7 +230,7 @@ def test_build_index_include_channel_only(mixed_kinds_data: Path, tmp_path: Path
 
 def test_build_index_default_is_all(mixed_kinds_data: Path, tmp_path: Path):
     db = tmp_path / "search.db"
-    indexer.build_index(mixed_kinds_data, db)
+    index.build_index(mixed_kinds_data, db)
     conn = sqlite3.connect(db)
     kinds = {r[0] for r in conn.execute("SELECT kind FROM messages").fetchall()}
     conn.close()
@@ -239,8 +239,8 @@ def test_build_index_default_is_all(mixed_kinds_data: Path, tmp_path: Path):
 
 def test_rebuild_is_idempotent(minimal_data: Path, tmp_path: Path):
     db = tmp_path / "search.db"
-    indexer.build_index(minimal_data, db)
-    indexer.build_index(minimal_data, db)  # second call must not double-count
+    index.build_index(minimal_data, db)
+    index.build_index(minimal_data, db)  # second call must not double-count
     conn = sqlite3.connect(db)
     count = conn.execute("SELECT count(*) FROM messages").fetchone()[0]
     conn.close()

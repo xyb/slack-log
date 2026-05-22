@@ -8,7 +8,7 @@
 #   personal — slackdump archive -> split -> attach -> index from the jsonl
 #     layer; the server reads jsonl.
 #
-# Spawned by the server's in-process sync manager (slack_log/sync.py) — both
+# Spawned by the server's in-process sync manager (slack_log/web/sync.py) — both
 # the background scheduler and the POST /sync API run it. The sync manager
 # guarantees only one refresh runs at a time, so this script needs no locking
 # of its own. Writes the /data volume the same process serves from, so a
@@ -52,9 +52,9 @@ slackdump archive -no-encryption -files=false -o raw
 # text browsing work without it, thread pages just show the image fallback.
 split_and_attach() {
   echo "[refresh] split..."
-  python3 -m slack_log.splitter raw/slackdump.sqlite -o data
+  python3 -m slack_log.pipeline.split raw/slackdump.sqlite -o data
   echo "[refresh] attach (best-effort, 20min cap)..."
-  timeout 1200 python3 -m slack_log.attach data \
+  timeout 1200 python3 -m slack_log.pipeline.attach data \
     || echo "[refresh] attach incomplete (timeout/error) — continuing"
 }
 
@@ -64,12 +64,12 @@ if [ "$PROFILE" = "team" ]; then
     split_and_attach
   fi
   echo "[refresh] index (team ETL straight from slackdump.sqlite)..."
-  python3 -m slack_log.indexer --profile team --sqlite raw/slackdump.sqlite \
+  python3 -m slack_log.pipeline.index --profile team --sqlite raw/slackdump.sqlite \
     --db search.db --include "$INCLUDE"
 else
   split_and_attach
   echo "[refresh] index (personal, from the jsonl layer)..."
-  python3 -m slack_log.indexer --profile personal --data data \
+  python3 -m slack_log.pipeline.index --profile personal --data data \
     --db search.db --include "$INCLUDE"
 fi
 

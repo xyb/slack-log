@@ -13,7 +13,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from slack_log import render
+from slack_log.pipeline import render
 from slack_log.store.base import ArchiveStore
 
 

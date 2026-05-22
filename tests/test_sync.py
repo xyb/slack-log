@@ -4,9 +4,10 @@ import asyncio
 
 from fastapi.testclient import TestClient
 
-from slack_log import indexer, server
+from slack_log.pipeline import index
+from slack_log.web.app import create_app
 from slack_log.store import JsonlStore
-from slack_log.sync import SyncManager
+from slack_log.web.sync import SyncManager
 
 
 def _script(tmp_path, body):
@@ -71,8 +72,8 @@ def _app(tmp_path, sync_token="tok", body="true"):
     (data / "users.json").write_text("{}")
     (data / "channels.json").write_text("{}")
     db = tmp_path / "search.db"
-    indexer.build_index(data, db)
-    return server.create_app(
+    index.build_index(data, db)
+    return create_app(
         JsonlStore(data_root=data, db_path=db),
         sync_token=sync_token, sync_script=_script(tmp_path, body),
     )

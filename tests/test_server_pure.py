@@ -1,4 +1,4 @@
-"""Unit tests for slack_log.server — FastAPI app + search API.
+"""Unit tests for slack_log.web.app — FastAPI app + search API.
 
 The server has three responsibilities:
   1. Serve the existing static html/ tree (so #msg-{ts} anchors still work).
@@ -12,7 +12,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from slack_log import indexer, server
+from slack_log.pipeline import index
+from slack_log.web.app import create_app
 from slack_log.store import JsonlStore
 
 
@@ -39,13 +40,13 @@ def app_and_db(tmp_path: Path):
     }))
 
     db = tmp_path / "search.db"
-    indexer.build_index(data, db)
+    index.build_index(data, db)
 
     html = tmp_path / "html"
     (html / "channels" / "C001" / "threads").mkdir(parents=True)
     (html / "index.html").write_text("<html>index</html>")
 
-    app = server.create_app(JsonlStore(data_root=data, db_path=db))
+    app = create_app(JsonlStore(data_root=data, db_path=db))
     return TestClient(app), db, html
 
 
@@ -220,10 +221,10 @@ def app_for_timeline(tmp_path: Path):
         "C_B": {"name": "team-b", "is_channel": True},
     }))
     db = tmp_path / "search.db"
-    indexer.build_index(data, db)
+    index.build_index(data, db)
     html = tmp_path / "html"
     html.mkdir()
-    return TestClient(server.create_app(JsonlStore(data_root=data, db_path=db)))
+    return TestClient(create_app(JsonlStore(data_root=data, db_path=db)))
 
 
 def test_api_user_timeline_segments(app_for_timeline):
@@ -332,10 +333,10 @@ def app_channel_only(tmp_path: Path):
         "D001": {"name": "bob-dm", "is_im": True},
     }))
     db = tmp_path / "search.db"
-    indexer.build_index(data, db)  # full index — server filters at query time
+    index.build_index(data, db)  # full index — server filters at query time
     html = tmp_path / "html"
     html.mkdir()
-    app = server.create_app(JsonlStore(data_root=data, db_path=db), include={"channel"})
+    app = create_app(JsonlStore(data_root=data, db_path=db), include={"channel"})
     return TestClient(app)
 
 

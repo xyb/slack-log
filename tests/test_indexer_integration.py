@@ -1,4 +1,4 @@
-"""Integration test: indexer.main() builds search.db from a real data/ tree."""
+"""Integration test: index.main() builds search.db from a real data/ tree."""
 
 import json
 import sqlite3
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from slack_log import indexer
+from slack_log.pipeline import index
 
 
 @pytest.fixture
@@ -30,9 +30,9 @@ def tiny_data(tmp_path: Path) -> Path:
 def test_main_builds_index(tiny_data: Path, tmp_path: Path, monkeypatch):
     db = tmp_path / "search.db"
     monkeypatch.setattr(sys, "argv", [
-        "indexer.py", "--data", str(tiny_data), "--db", str(db),
+        "index.py", "--data", str(tiny_data), "--db", str(db),
     ])
-    indexer.main()
+    index.main()
 
     assert db.exists()
     conn = sqlite3.connect(db)

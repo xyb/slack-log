@@ -28,13 +28,15 @@ slack_log/
     jsonl_store.py    JsonlStore  — personal backend
     sqlite_store.py   SqliteStore — team backend
   config.py    Profile enum + Config.from_env
-  splitter.py  slackdump.sqlite → data/ jsonl (personal)
-  attach.py    download attachments by mime/size policy
-  indexer.py   build search.db — FTS index + the team ETL
-  render.py    shared render helpers + the static-HTML exporter
-  server.py    FastAPI app — depends only on an ArchiveStore
-  auth.py      optional OIDC SSO + access logging
-  sync.py      in-process refresh manager
+  pipeline/    the data-processing stages
+    split.py          slackdump.sqlite → data/ jsonl (personal)
+    attach.py         download attachments by mime/size policy
+    index.py          build search.db — FTS index + the team ETL
+    render.py         shared render helpers + the static-HTML exporter
+  web/         the serving layer
+    app.py            FastAPI app — depends only on an ArchiveStore
+    auth.py           optional OIDC SSO + access logging
+    sync.py           in-process refresh manager
   templates/   server/ and static/ Jinja2 flavors
 ```
 
@@ -121,7 +123,7 @@ API; that API is not implemented yet.
 
 - **A new storage backend** (e.g. Postgres): implement `ArchiveStore`, add it
   to `tests/test_store_contract.py`'s parametrization, done.
-- **A new page**: add a route to `server.py` and, if it needs new data, a
+- **A new page**: add a route to `web/app.py` and, if it needs new data, a
   method to `ArchiveStore` + both backends.
 - **Shared logic**: if the splitter and the indexer would both need it, it
   belongs in `core/`.

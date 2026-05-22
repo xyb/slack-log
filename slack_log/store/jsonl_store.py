@@ -8,7 +8,7 @@ files; full-text search comes from search.db (handled by the base class).
 import json
 from pathlib import Path
 
-from slack_log import render
+from slack_log.pipeline import render
 from slack_log.store.base import ArchiveStore
 
 

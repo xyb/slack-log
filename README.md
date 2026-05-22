@@ -141,12 +141,8 @@ layer, the extended `search.db` schema — in
 | `slack_log/core/` | shared layer — `slackdump_db` (read the archive SQLite) + `text` (Slack text processing) |
 | `slack_log/store/` | `ArchiveStore` abstraction + `JsonlStore` (personal) / `SqliteStore` (team) |
 | `slack_log/config.py` | `Profile` enum + `Config.from_env` |
-| `slack_log/splitter.py` | `slackdump.sqlite` → per-thread JSONL (personal) |
-| `slack_log/indexer.py` | builds `search.db` — the FTS5 index, plus the team ETL |
-| `slack_log/attach.py` | downloads attachments by mime/size policy |
-| `slack_log/render.py` | shared render helpers + the static-HTML exporter |
-| `slack_log/server.py` | FastAPI app — depends only on an `ArchiveStore` |
-| `slack_log/auth.py` | optional OIDC SSO middleware + access logging |
+| `slack_log/pipeline/` | data processing — `split` · `attach` · `index` · `render` |
+| `slack_log/web/` | serving — `app` (FastAPI) · `auth` (OIDC SSO) · `sync` (refresh) |
 | `deploy/k8s/` | sanitized Kubernetes manifests (`*.example.yaml`) |
 | `docs/` | `personal.md` · `team.md` · `architecture.md` · `CICD.md` |
 

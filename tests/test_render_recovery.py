@@ -5,7 +5,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from slack_log import render
+from slack_log.pipeline import render
 
 
 def test_one_broken_thread_does_not_stop_channel(tmp_path: Path):
@@ -37,7 +37,7 @@ def test_one_broken_thread_does_not_stop_channel(tmp_path: Path):
     )
 
     env = Environment(
-        loader=FileSystemLoader(str(Path(render.__file__).parent / "templates" / "static")),
+        loader=FileSystemLoader(str(Path(render.__file__).parent.parent / "templates" / "static")),
         autoescape=select_autoescape(["html"]),
     )
 
