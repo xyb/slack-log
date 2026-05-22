@@ -179,7 +179,10 @@ def _write_index(out_root: Path, index_meta: dict, users: dict, channels: dict) 
                     "is_thread": bool(meta.get("is_parent")),
                     "has_files": bool(first.get("files")),
                     "participants": (
-                        list({first.get("user")} | set(first.get("reply_users") or []))
+                        # sorted, not list(set(...)): set iteration order varies
+                        # by PYTHONHASHSEED, and the team ETL must produce the
+                        # exact same list for the two profiles to agree.
+                        sorted({first.get("user")} | set(first.get("reply_users") or []))
                         if first.get("user") else []
                     ),
                 }

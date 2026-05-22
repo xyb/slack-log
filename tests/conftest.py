@@ -109,3 +109,38 @@ def sqlite_with_threads(tmp_path: Path) -> Path:
     conn.commit()
     conn.close()
     return db
+
+
+@pytest.fixture
+def sqlite_multi(tmp_path: Path) -> Path:
+    """SQLite with a multi-participant thread + an empty channel — the cases
+    `sqlite_with_threads` doesn't cover, both surfaced by real-data testing."""
+    db = tmp_path / "multi.sqlite"
+    conn = sqlite3.connect(db)
+    _schema(conn)
+
+    # C001: a thread whose parent records 2 reply_users → 3 participants. The
+    # reply_users are deliberately not pre-sorted.
+    _insert_msg(conn, "1700000100.000001", "C001", "1700000100.000001", "parent",
+                user="U001", is_parent=True, latest_reply="1700000100.000003",
+                data={"type": "message", "user": "U001", "text": "parent",
+                      "ts": "1700000100.000001", "thread_ts": "1700000100.000001",
+                      "reply_users": ["U003", "U002"]})
+    _insert_msg(conn, "1700000100.000002", "C001", "1700000100.000001", "r1", user="U002")
+    _insert_msg(conn, "1700000100.000003", "C001", "1700000100.000001", "r2", user="U003")
+
+    # C001 has messages; C099 is an empty channel (a CHANNEL row, no MESSAGE rows).
+    for cid, name in (("C001", "general"), ("C099", "ghost")):
+        conn.execute(
+            "INSERT INTO CHANNEL (ID, CHUNK_ID, NAME, DATA) VALUES (?, 1, ?, ?)",
+            (cid, name, json.dumps({"id": cid, "name": name}).encode()),
+        )
+    for uid in ("U001", "U002", "U003"):
+        conn.execute(
+            "INSERT INTO S_USER (ID, CHUNK_ID, USERNAME, DATA) VALUES (?, 1, ?, ?)",
+            (uid, uid, json.dumps({"id": uid, "name": uid}).encode()),
+        )
+
+    conn.commit()
+    conn.close()
+    return db

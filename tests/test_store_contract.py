@@ -172,3 +172,38 @@ def test_team_server_serves_pages(archive):
 
     assert client.get("/channels/C_NOPE").status_code == 404
     assert client.get("/channels/C001/threads/9999999999.0").status_code == 404
+
+
+# --- regressions caught by real-data testing (2026-05-22) -----------------
+
+def test_stores_agree_on_multi_participant_and_empty_channel(sqlite_multi, tmp_path):
+    """Two drifts the synthetic fixture missed, found running the real archive:
+
+    1. participants was list(set(...)) — hash-ordered, so it differed between
+       the split process and the team-ETL process. It must be sorted.
+    2. the team channels table held empty channels (no threads); the personal
+       profile has no directory for those. Neither store should list them.
+    """
+    data = tmp_path / "data"
+    conn = sqlite3.connect(sqlite_multi)
+    split(conn, data)
+    conn.close()
+    personal_db = tmp_path / "personal.db"
+    team_db = tmp_path / "team.db"
+    index.build_index(data, personal_db, profile="personal")
+    index.build_index(sqlite_multi, team_db, profile="team")
+    js = JsonlStore(data_root=data, db_path=personal_db)
+    ss = SqliteStore(db_path=team_db)
+
+    # the empty channel C099 appears in neither store's listing
+    assert "C099" not in js.list_channels()
+    assert "C099" not in ss.list_channels()
+    assert js.list_channels() == ss.list_channels() == ["C001"]
+
+    # multi-participant thread: participants sorted + identical across stores
+    jt = js.thread_meta("C001")
+    st = ss.thread_meta("C001")
+    assert jt == st
+    assert jt[0]["participants"] == ["U001", "U002", "U003"]  # sorted, not hash-order
+
+    assert js.global_groups() == ss.global_groups()

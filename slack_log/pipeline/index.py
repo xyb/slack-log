@@ -308,7 +308,7 @@ def _index_team(sqlite_path: Path, conn: sqlite3.Connection, include: set[str]) 
                         1 if meta.get("is_parent") else 0,
                         1 if first.get("files") else 0,
                         json.dumps(
-                            list({first.get("user")} | set(first.get("reply_users") or []))
+                            sorted({first.get("user")} | set(first.get("reply_users") or []))
                             if first.get("user") else []
                         ),
                     ),
@@ -323,6 +323,11 @@ def _index_team(sqlite_path: Path, conn: sqlite3.Connection, include: set[str]) 
                 )
             for cid, meta in channels.items():
                 if include and _kind_of(cid, channels) not in include:
+                    continue
+                # An empty channel (no surviving thread) has no data/ directory
+                # in the personal profile — skip it here too so both profiles
+                # agree on list_channels / global_groups.
+                if thread_count.get(cid, 0) == 0:
                     continue
                 conn.execute(
                     "INSERT OR REPLACE INTO channels (id, name, kind, is_im, is_mpim, "
