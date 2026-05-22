@@ -14,9 +14,7 @@ def test_full_pipeline_writes_users_channels_threads_and_index(
     out.mkdir()
     conn = sqlite3.connect(sqlite_with_threads)
 
-    splitter.write_users_and_channels(conn, out)
-    splitter.split_threads(conn, out)
-    splitter.write_index(conn, out)
+    splitter.split(conn, out)
     conn.close()
 
     # 1) users.json populated with Alice
@@ -47,3 +45,45 @@ def test_full_pipeline_writes_users_channels_threads_and_index(
     assert thread_entry["msg_count"] == 2
     assert thread_entry["is_thread"] is True
     assert thread_entry["first_user"] == "U001"
+
+
+def test_jsonl_sorted_when_table_order_is_not(tmp_path: Path):
+    """Pass 3 (tidy): even when MESSAGE rows sit in the table newest-first,
+    the thread jsonl comes out ts-ascending."""
+    db = tmp_path / "s.sqlite"
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """
+        CREATE TABLE MESSAGE (
+            ID INTEGER, CHUNK_ID INTEGER,
+            LOAD_DTTM TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CHANNEL_ID TEXT, TS TEXT, THREAD_TS TEXT, LATEST_REPLY TEXT,
+            IS_PARENT SMALLINT DEFAULT 0, DATA BLOB,
+            PRIMARY KEY (ID, CHUNK_ID));
+        CREATE TABLE S_USER (ID TEXT, CHUNK_ID INTEGER, DATA BLOB,
+            PRIMARY KEY (ID, CHUNK_ID));
+        CREATE TABLE CHANNEL (ID TEXT, CHUNK_ID INTEGER, DATA BLOB,
+            PRIMARY KEY (ID, CHUNK_ID));
+        """
+    )
+    rows = [  # inserted reverse-chronological — table order is NOT ts order
+        ("100.000003", "reply 2", 0),
+        ("100.000002", "reply 1", 0),
+        ("100.000001", "parent", 1),
+    ]
+    for ts, txt, parent in rows:
+        conn.execute(
+            "INSERT INTO MESSAGE (ID, CHUNK_ID, CHANNEL_ID, TS, THREAD_TS, IS_PARENT, DATA) "
+            "VALUES (?, 1, 'C1', ?, '100.000001', ?, ?)",
+            (int(float(ts) * 1e6), ts, parent, json.dumps({"ts": ts, "text": txt}).encode()),
+        )
+    conn.commit()
+
+    out = tmp_path / "data"
+    splitter.split(conn, out)
+    conn.close()
+
+    lines = (out / "channels" / "C1" / "threads" / "100.000001.jsonl").read_text().splitlines()
+    order = [json.loads(ln)["ts"] for ln in lines]
+    assert order == sorted(order), f"jsonl not ts-sorted: {order}"
+    assert json.loads(lines[0])["text"] == "parent"

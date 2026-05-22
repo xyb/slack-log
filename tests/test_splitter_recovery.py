@@ -16,7 +16,7 @@ def test_invalid_json_in_one_thread_does_not_stop_others(sqlite_with_threads: Pa
     out_root.mkdir()
 
     conn = sqlite3.connect(sqlite_with_threads)
-    stats = splitter.split_threads(conn, out_root)
+    stats = splitter.split(conn, out_root)
     conn.close()
 
     # 3 channels of valid thread anchors should still produce jsonl files.
