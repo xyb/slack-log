@@ -6,5 +6,6 @@ metadata:
 data:
   SLACK_LOG_ROOT: "/data"
   SLACK_LOG_INCLUDE: "channel"
+  SLACK_LOG_SYNC_INTERVAL: "3600"   # seconds between auto-syncs; 0 disables it
   OIDC_DISCOVERY_URL: "https://sso.example.com/application/o/slack-log/.well-known/openid-configuration"
   SESSION_COOKIE_SECURE: "true"

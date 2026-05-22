@@ -22,8 +22,9 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
-# /healthz must stay open — k8s liveness/readiness probes hit it unauthenticated.
-PUBLIC_PATHS = frozenset({"/healthz"})
+# /healthz — k8s probes hit it unauthenticated.
+# /sync — the sync API does its own Bearer-token check, so it bypasses OIDC.
+PUBLIC_PATHS = frozenset({"/healthz", "/sync"})
 PUBLIC_PREFIXES = ("/auth/",)
 
 # Access log → stdout. 12-factor: normal app output goes to stdout, stderr is

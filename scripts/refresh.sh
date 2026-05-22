@@ -1,9 +1,11 @@
 #!/bin/sh
-# Data-refresh pipeline for the slack-log CronJob.
+# Data-refresh pipeline: slackdump archive -> split -> attach -> index.
 #
-# Runs inside the container against the shared /data PVC. The web Deployment
-# reads the same volume, so a successful run is immediately visible — no
-# manual copy, no image rebuild.
+# Spawned by the server's in-process sync manager (slack_log/sync.py) — both
+# the background scheduler and the POST /sync API run it. The sync manager
+# guarantees only one refresh runs at a time, so this script needs no locking
+# of its own. Writes the /data volume the same process serves from, so a
+# successful run is immediately live.
 #
 # Credentials arrive as env vars from the K8s Secret:
 #   SLACK_XOXC  — Slack browser token (xoxc-...)

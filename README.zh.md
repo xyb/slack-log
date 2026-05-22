@@ -42,8 +42,9 @@ server，没有鉴权，也没有稳定的单条消息锚点。
   `…/threads/1779079280.797169#msg-1779154899.648009`，可以放心贴到任何文档当引用。
 - **站在 slackdump 肩膀上**。认证 / 限流 / 增量 resume / thread reply 晚到检测——都交给
   slackdump，slack-log 只 subprocess 调它。
-- **容器就绪**。一个公开的多架构 Docker 镜像运行 server，一个每日 CronJob 重新 archive。
-  附带 Kubernetes 部署文件。
+- **自动刷新**。server 自己跑数据刷新——一个按可配间隔运行的后台定时任务，外加按需触发的
+  `POST /sync` API。
+- **容器就绪**。一个公开的多架构 Docker 镜像；附带 Kubernetes 部署文件。
 
 > 个人项目，MIT 协议。在一个 Slack workspace 上测过。Public / private channel /
 > DM / MPIM 都能跑。
@@ -104,8 +105,11 @@ slack-log 以一个公开 Docker 镜像 + 一组 Kubernetes 部署文件的形�
 - **镜像**——Docker Hub 上的 `xieyanbo/slack-log`，多架构（amd64/arm64）。每次正式
   发布推一个固定 `X.Y.Z` 版本 tag；`:latest` 跟随最高版本号。部署仍固定到具体版本号。
 - **Kubernetes**——`deploy/k8s/` 放脱敏的 `*.example.yaml`：Deployment + Service +
-  Ingress + 一个共享 PVC + 每日 refresh CronJob。把 example 拷成去掉 `.example` 的
-  同名文件，填进真实值再 apply——真实那份不进 git。
+  Ingress + 一个共享 PVC。把 example 拷成去掉 `.example` 的同名文件，填进真实值再
+  apply——真实那份不进 git。
+- **刷新**——server 自己刷新数据：一个按 `SLACK_LOG_SYNC_INTERVAL` 间隔运行的后台
+  定时任务，外加按需触发的 `POST /sync` API（bearer token 鉴权）。一把进程内锁保证两者
+  不重叠——不需要单独的 CronJob。
 - **OIDC SSO**——设了 `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` /
   `OIDC_DISCOVERY_URL` 三个环境变量，server 就要求登录；不设则开放运行，供本地开发。
   `/healthz` 永远公开。

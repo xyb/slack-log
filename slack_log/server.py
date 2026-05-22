@@ -15,9 +15,12 @@ so the search page inherits the existing CSS look.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
+import secrets
 import sqlite3
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -27,6 +30,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from slack_log import indexer
+from slack_log.sync import SyncManager, scheduler_loop
 
 # Fixed UTC+8 offset for grouping user-timeline messages onto a consistent
 # calendar day. A fixed offset avoids a tzdata dependency in the slim image;
@@ -65,6 +69,9 @@ def create_app(
     data_root: Path | None = None,
     templates_root: Path | None = None,
     include: set[str] | None = None,
+    sync_token: str | None = None,
+    sync_interval: float = 0,
+    sync_script: Path | None = None,
 ) -> FastAPI:
     """Build a FastAPI app bound to a search.db + html/ tree.
 
@@ -117,7 +124,24 @@ def create_app(
         placeholders = ",".join("?" * len(include))
         return f" AND kind IN ({placeholders})", sorted(include)
 
-    app = FastAPI(title="slack-log search", version="0.7.0")
+    # Sync manager — serialises the refresh pipeline; the background
+    # scheduler and POST /sync both go through it (see sync.py).
+    if sync_script is None:
+        sync_script = Path(__file__).parent.parent / "scripts" / "refresh.sh"
+    sync_manager = SyncManager(script=sync_script, cwd=sync_script.parent.parent)
+
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI):
+        scheduler: asyncio.Task | None = None
+        if sync_interval > 0:
+            scheduler = asyncio.create_task(scheduler_loop(sync_manager, sync_interval))
+        try:
+            yield
+        finally:
+            if scheduler:
+                scheduler.cancel()
+
+    app = FastAPI(title="slack-log search", version="0.7.0", lifespan=_lifespan)
 
     @app.exception_handler(StarletteHTTPException)
     async def _not_found(request: Request, exc: StarletteHTTPException):
@@ -136,6 +160,28 @@ def create_app(
     @app.get("/healthz")
     def healthz():
         return {"status": "ok"}
+
+    def _check_sync_token(request: Request) -> None:
+        if not sync_token:
+            raise HTTPException(status_code=503, detail="sync API not configured")
+        auth = request.headers.get("authorization", "")
+        if not secrets.compare_digest(auth, f"Bearer {sync_token}"):
+            raise HTTPException(status_code=401, detail="invalid or missing sync token")
+
+    @app.post("/sync")
+    async def trigger_sync(request: Request):
+        """Trigger an immediate refresh. 202 if started, 409 if one is running."""
+        _check_sync_token(request)
+        started = await sync_manager.trigger("api")
+        if not started:
+            raise HTTPException(status_code=409, detail="a sync is already running")
+        return JSONResponse({"status": "started"}, status_code=202)
+
+    @app.get("/sync")
+    async def sync_status(request: Request):
+        """Current sync state — running flag, last run time and result."""
+        _check_sync_token(request)
+        return JSONResponse(sync_manager.status())
 
     @app.get("/api/search")
     def api_search(q: str = Query(default=""), limit: int = Query(default=50, ge=1, le=500)):
@@ -342,6 +388,8 @@ def create_app_from_env() -> FastAPI:
         html_root=Path(os.environ.get("SLACK_LOG_HTML", root / "html")),
         data_root=Path(os.environ.get("SLACK_LOG_DATA", root / "data")),
         include=inc or None,
+        sync_token=os.environ.get("SLACK_LOG_SYNC_TOKEN") or None,
+        sync_interval=float(os.environ.get("SLACK_LOG_SYNC_INTERVAL", "0") or "0"),
     )
 
 

@@ -56,8 +56,10 @@ doesn't:
 - **Standing on slackdump's shoulders.** Auth, rate limits, incremental resume,
   thread-reply late-arrival detection — slackdump handles all of it. slack-log
   invokes it as a subprocess.
-- **Container-ready.** A public multi-arch Docker image runs the server; a
-  daily CronJob re-archives. Kubernetes manifests included.
+- **Self-refreshing.** The server runs the data refresh itself — a background
+  scheduler on a configurable interval, plus an on-demand `POST /sync` API.
+- **Container-ready.** A public multi-arch Docker image; Kubernetes manifests
+  included.
 
 > Personal project, MIT-licensed. Tested on a single Slack workspace. Public
 > channels, private channels, DMs, MPIMs all work.
@@ -121,9 +123,13 @@ slack-log ships as a public Docker image and a set of Kubernetes manifests:
   Each release publishes a pinned `X.Y.Z` tag; `:latest` tracks the highest
   released version. Deployments pin the exact version.
 - **Kubernetes** — `deploy/k8s/` holds sanitized `*.example.yaml` manifests:
-  Deployment + Service + Ingress + a shared PVC + a daily refresh CronJob. Copy
-  an example to the same name without `.example`, fill in your real values, and
-  apply that — the real copy stays untracked.
+  Deployment + Service + Ingress + a shared PVC. Copy an example to the same
+  name without `.example`, fill in your real values, and apply that — the real
+  copy stays untracked.
+- **Refresh** — the server refreshes the data itself: a background scheduler on
+  the `SLACK_LOG_SYNC_INTERVAL` interval, plus an on-demand `POST /sync` API
+  (bearer-token auth). One in-process lock keeps the two from overlapping — no
+  separate CronJob.
 - **OIDC SSO** — set `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` /
   `OIDC_DISCOVERY_URL` and the server requires login; leave them unset and it
   runs open, for local dev. `/healthz` is always public.

@@ -62,8 +62,10 @@ spec:
               cpu: 100m
               memory: 256Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: "1"
+              # Headroom for the in-process refresh (slackdump archive runs
+              # inside this container now — there is no separate refresh pod).
+              memory: 1Gi
       volumes:
         - name: data
           persistentVolumeClaim:
