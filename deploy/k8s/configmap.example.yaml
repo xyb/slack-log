@@ -5,6 +5,10 @@ metadata:
   namespace: slack-log
 data:
   SLACK_LOG_ROOT: "/data"
+  # Team profile: the indexer ETLs slackdump.sqlite straight into search.db
+  # and the server reads search.db only — no jsonl layer. Set
+  # SLACK_LOG_EMIT_JSONL: "1" to also write the jsonl layer as an escape hatch.
+  SLACK_LOG_PROFILE: "team"
   SLACK_LOG_INCLUDE: "channel"
   SLACK_LOG_SYNC_INTERVAL: "3600"   # seconds between auto-syncs; 0 disables it
   OIDC_DISCOVERY_URL: "https://sso.example.com/application/o/slack-log/.well-known/openid-configuration"

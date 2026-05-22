@@ -28,8 +28,11 @@ COPY --from=builder /install /usr/local
 COPY slack_log/ slack_log/
 COPY scripts/ scripts/
 
-# Shared PVC mount point — search.db / html/ / data/ all live here.
+# Shared PVC mount point — search.db (and raw/) live here.
 ENV SLACK_LOG_ROOT=/data
+# The container runs the team profile: the server reads search.db only and the
+# refresh ETLs slackdump.sqlite straight into it. The configmap can override.
+ENV SLACK_LOG_PROFILE=team
 # refresh.sh cd's into /data, so `python -m slack_log.*` needs the package
 # on the path regardless of cwd.
 ENV PYTHONPATH=/app

@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
 import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -33,6 +32,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from slack_log import render
 from slack_log.auth import auth_config_from_env, install_auth
+from slack_log.config import Config
 from slack_log.store import ArchiveStore, JsonlStore, SqliteStore
 from slack_log.sync import SyncManager, scheduler_loop
 
@@ -326,29 +326,21 @@ def create_app(
 def create_app_from_env() -> FastAPI:
     """uvicorn --factory entrypoint for the container.
 
-    Reads paths from env; in EKS a single PVC is mounted and SLACK_LOG_ROOT
-    points at it, so search.db / data/ live on the shared volume.
-
-    SLACK_LOG_PROFILE selects the store: "team" → SqliteStore (server reads
-    search.db only); anything else → JsonlStore (the personal jsonl layer).
+    Config.from_env() resolves the profile, paths and sync settings; in EKS a
+    single PVC is mounted and SLACK_LOG_ROOT points at it. The profile picks
+    the store: team → SqliteStore (search.db only), personal → JsonlStore.
     """
-    root = Path(os.environ.get("SLACK_LOG_ROOT", "."))
-    inc = {p.strip() for p in os.environ.get("SLACK_LOG_INCLUDE", "").split(",") if p.strip()}
-    db_path = Path(os.environ.get("SLACK_LOG_DB", root / "search.db"))
-    profile = os.environ.get("SLACK_LOG_PROFILE", "personal")
+    cfg = Config.from_env()
     store: ArchiveStore
-    if profile == "team":
-        store = SqliteStore(db_path=db_path)
+    if cfg.is_team:
+        store = SqliteStore(db_path=cfg.db_path)
     else:
-        store = JsonlStore(
-            data_root=Path(os.environ.get("SLACK_LOG_DATA", root / "data")),
-            db_path=db_path,
-        )
+        store = JsonlStore(data_root=cfg.data_root, db_path=cfg.db_path)
     return create_app(
         store,
-        include=inc or None,
-        sync_token=os.environ.get("SLACK_LOG_SYNC_TOKEN") or None,
-        sync_interval=float(os.environ.get("SLACK_LOG_SYNC_INTERVAL", "0") or "0"),
+        include=cfg.include,
+        sync_token=cfg.sync_token,
+        sync_interval=cfg.sync_interval,
     )
 
 
@@ -357,8 +349,8 @@ def main():
     ap.add_argument("--db", type=Path, default=Path("./search.db"))
     ap.add_argument("--data", type=Path, default=Path("./data"),
                     help="data/ root — the jsonl archive the personal profile reads")
-    ap.add_argument("--html", type=Path, default=Path("./html"),
-                    help="(unused — kept for compatibility, removed in the Makefile reorg)")
+    ap.add_argument("--profile", choices=("personal", "team"), default="personal",
+                    help="personal → JsonlStore (data/ jsonl); team → SqliteStore (search.db only)")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8770)
     ap.add_argument("--include", default="",
@@ -367,7 +359,11 @@ def main():
 
     include = {p.strip() for p in args.include.split(",") if p.strip()} or None
     import uvicorn
-    store = JsonlStore(data_root=args.data, db_path=args.db)
+    store: ArchiveStore
+    if args.profile == "team":
+        store = SqliteStore(db_path=args.db)
+    else:
+        store = JsonlStore(data_root=args.data, db_path=args.db)
     app = create_app(store, include=include)
     uvicorn.run(app, host=args.host, port=args.port)
 

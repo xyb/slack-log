@@ -1,53 +1,76 @@
-# slack-log build targets
+# slack-log build targets — two product profiles.
 #
-# Layout:
-#   raw/slackdump.sqlite  ← produced by slackdump archive (incremental resume)
-#   data/                 ← splitter output + attach downloads (DO NOT wipe — attachments are slow to re-fetch)
-#   html/                 ← render output (safe to wipe and regenerate)
+#   personal — local use. The splitter writes the data/ jsonl layer and the
+#              server reads jsonl. Run: make personal-build && make personal-serve
+#   team     — server use. No jsonl: the indexer ETLs slackdump.sqlite straight
+#              into search.db and the server reads search.db. Run:
+#              make team-build && make team-serve
 #
-# "Attachments are precious" principle: image downloads are slow, so HTML
-# rebuilds must preserve data/. Only `make clean-all` removes data/.
+# data/ is precious — attachment downloads are slow, so only `make clean-all`
+# removes it.
 
 PY ?= python3
+HOST ?= 127.0.0.1
+PORT ?= 8770
+INCLUDE ?=
+_INCLUDE_ARG = $(if $(INCLUDE),--include $(INCLUDE),)
 
-.PHONY: help update fetch reconcile split attach render rebuild-html \
-        render-channels render-dms render-mpims clean-html clean-all \
-        index serve test
+.PHONY: help \
+        personal-build personal-serve render-static \
+        team-build team-serve \
+        fetch reconcile split attach index team-index \
+        test clean-html clean-all
 
 help:
-	@echo "make update              full incremental: slackdump -> splitter -> attach -> render"
-	@echo "make fetch               only run slackdump archive --resume (cheap, additive)"
-	@echo "make reconcile           re-fetch last 90 days to pick up edits/deletes, then split + render"
-	@echo "make split               SQLite -> jsonl + users.json + channels.json"
-	@echo "make attach              walk jsonl files, download attachments by mime/size policy"
-	@echo "make render              jsonl -> HTML (jinja2 + ref id + lightbox, all kinds)"
-	@echo "make render-channels     only render channels (skip DMs and MPIMs)"
-	@echo "make render-dms          only render DMs"
-	@echo "make render-mpims        only render MPIMs"
-	@echo "make rebuild-html        rebuild all HTML (preserves data/, fastest path)"
-	@echo "make render-static       render the static (relative .html) flavor to html-static/"
-	@echo "make index               build search.db (FTS5 full-text index over jsonl)"
-	@echo "make index INCLUDE=channel   build a channels-only index (skips DM/MPIM)"
-	@echo "make serve               run v0.7 web service (browse + search) on 127.0.0.1:8770"
-	@echo "make serve-channels      same DB, runtime-filter to channels only"
-	@echo "make test                run pytest"
-	@echo "make clean-html          remove html/"
-	@echo "make clean-all           ⚠ remove data/ + html/ (forces full re-split + re-download)"
+	@echo "Personal profile — local, jsonl data layer:"
+	@echo "  make personal-build      fetch -> split -> attach -> index"
+	@echo "  make personal-serve      run the web service (reads data/ jsonl)"
+	@echo "  make render-static       export static HTML to html-static/"
+	@echo ""
+	@echo "Team profile — server, search.db only (no jsonl):"
+	@echo "  make team-build          fetch -> index (ETL from slackdump.sqlite)"
+	@echo "  make team-serve          run the web service (reads search.db)"
+	@echo ""
+	@echo "Building blocks / misc:"
+	@echo "  make fetch               slackdump archive --resume (cheap, additive)"
+	@echo "  make reconcile           re-fetch last 90 days (pick up edits/deletes)"
+	@echo "  make test                run pytest"
+	@echo "  make clean-html          remove html/ + html-static/"
+	@echo "  make clean-all           ⚠ also remove data/ + search.db"
 
-update: fetch split attach render
+# --- personal profile -----------------------------------------------------
+
+personal-build: fetch split attach index
+
+personal-serve:
+	$(PY) -m slack_log.server --profile personal --db ./search.db --data ./data \
+	    --host $(HOST) --port $(PORT) $(_INCLUDE_ARG)
+
+render-static:
+	rm -rf html-static
+	$(PY) -m slack_log.render --flavor=static --html=./html-static --include=channel
+
+# --- team profile ---------------------------------------------------------
+
+team-build: fetch team-index
+
+team-serve:
+	$(PY) -m slack_log.server --profile team --db ./search.db \
+	    --host $(HOST) --port $(PORT) $(_INCLUDE_ARG)
+
+# --- building blocks ------------------------------------------------------
 
 fetch:
+	mkdir -p raw
 	cd raw && slackdump archive -o . --resume -files=false
 
-# Weekly reconcile: pick up message edits and deletions. See README.
+# Weekly reconcile: pick up message edits and deletions. See docs/.
 RECONCILE_DAYS ?= 90
 reconcile:
+	mkdir -p raw
 	cd raw && slackdump archive -o . -files=false -member-only \
 	    -time-from=$$($(PY) -c "from datetime import datetime, timedelta; print((datetime.now() - timedelta(days=$(RECONCILE_DAYS))).strftime('%Y-%m-%dT00:00:00'))") \
 	    -chan-types=public_channel,private_channel,im,mpim
-	$(PY) -m slack_log.splitter raw/slackdump.sqlite -o ./data
-	$(PY) -m slack_log.attach ./data
-	rm -rf html && $(PY) -m slack_log.render
 
 split:
 	$(PY) -m slack_log.splitter raw/slackdump.sqlite -o ./data
@@ -55,47 +78,20 @@ split:
 attach:
 	$(PY) -m slack_log.attach ./data
 
-render:
-	rm -rf html
-	$(PY) -m slack_log.render
-
-render-channels: clean-html
-	$(PY) -m slack_log.render --include=channel
-
-# Static (no-server) flavor — relative .html links, drops in any web server.
-render-static:
-	rm -rf html-static
-	$(PY) -m slack_log.render --flavor=static --html=./html-static --include=channel
-
-render-dms: clean-html
-	$(PY) -m slack_log.render --include=dm
-
-render-mpims: clean-html
-	$(PY) -m slack_log.render --include=mpim
-
-# Most common: after template/CSS/render.py changes
-rebuild-html: clean-html
-	$(PY) -m slack_log.render
-
-INCLUDE ?=
+# personal: index from the jsonl layer
 index:
-	$(PY) -m slack_log.indexer --data ./data --db ./search.db $(if $(INCLUDE),--include $(INCLUDE))
+	$(PY) -m slack_log.indexer --profile personal --data ./data --db ./search.db $(_INCLUDE_ARG)
 
-PORT ?= 8770
-HOST ?= 127.0.0.1
-serve:
-	$(PY) -m slack_log.server --db ./search.db --html ./html --data ./data --host $(HOST) --port $(PORT) $(if $(INCLUDE),--include $(INCLUDE))
-
-# Channels-only flavor: same DB, server hides DM/MPIM at query time.
-serve-channels:
-	$(MAKE) serve INCLUDE=channel
+# team: ETL straight from slackdump.sqlite — no jsonl in between
+team-index:
+	$(PY) -m slack_log.indexer --profile team --sqlite raw/slackdump.sqlite --db ./search.db $(_INCLUDE_ARG)
 
 test:
 	$(PY) -m pytest
 
 clean-html:
-	rm -rf html
+	rm -rf html html-static
 
 # ⚠ This wipes attachments — full re-download (~1300 images, ~15 min). Rarely used.
 clean-all:
-	rm -rf data html
+	rm -rf data html html-static search.db
