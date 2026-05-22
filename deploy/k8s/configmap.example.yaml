@@ -11,5 +11,9 @@ data:
   SLACK_LOG_PROFILE: "team"
   SLACK_LOG_INCLUDE: "channel"
   SLACK_LOG_SYNC_INTERVAL: "3600"   # seconds between auto-syncs; 0 disables it
+  # Attachments: the refresh downloads them into the volume. Cap the per-file
+  # size so big files stay metadata-only (thread pages link to Slack instead).
+  # SLACK_LOG_ATTACHMENTS: "0" turns downloading off entirely.
+  SLACK_LOG_ATTACHMENT_MAX_MB: "10"
   OIDC_DISCOVERY_URL: "https://sso.example.com/application/o/slack-log/.well-known/openid-configuration"
   SESSION_COOKIE_SECURE: "true"

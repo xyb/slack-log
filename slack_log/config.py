@@ -37,11 +37,13 @@ class Config:
 
     profile: Profile
     root: Path
-    data_root: Path        # personal: the jsonl layer
+    data_root: Path        # personal: the jsonl layer; both: where attachments land
     db_path: Path          # search.db — both profiles
     sqlite_path: Path      # raw/slackdump.sqlite — slackdump's archive
     include: set[str] | None
     emit_jsonl: bool       # team escape hatch: also write the jsonl layer
+    download_attachments: bool   # whether the refresh downloads attachments
+    attachment_max_mb: int       # skip an attachment larger than this (MB)
     sync_token: str | None
     sync_interval: float
 
@@ -64,6 +66,8 @@ class Config:
             sqlite_path=Path(env.get("SLACK_LOG_SQLITE", root / "raw" / "slackdump.sqlite")),
             include=include or None,
             emit_jsonl=_truthy(env.get("SLACK_LOG_EMIT_JSONL", "")),
+            download_attachments=_truthy(env.get("SLACK_LOG_ATTACHMENTS", "1")),
+            attachment_max_mb=int(env.get("SLACK_LOG_ATTACHMENT_MAX_MB", "10") or "10"),
             sync_token=env.get("SLACK_LOG_SYNC_TOKEN") or None,
             sync_interval=float(env.get("SLACK_LOG_SYNC_INTERVAL", "0") or "0"),
         )

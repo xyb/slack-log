@@ -97,6 +97,8 @@ bearer-token check.
 | `SLACK_LOG_DB` | `<root>/search.db` | the database the server reads |
 | `SLACK_LOG_INCLUDE` | all kinds | comma-separated subset of `channel,dm,mpim` |
 | `SLACK_LOG_EMIT_JSONL` | off | also write the jsonl layer (escape hatch) |
+| `SLACK_LOG_ATTACHMENTS` | on | download attachments during the refresh |
+| `SLACK_LOG_ATTACHMENT_MAX_MB` | `10` | skip an attachment larger than this |
 | `SLACK_LOG_SYNC_INTERVAL` | `0` | seconds between auto-syncs |
 | `SLACK_LOG_SYNC_TOKEN` | — | bearer token for `POST /sync` |
 | `SLACK_XOXC` / `SLACK_XOXD` | — | Slack credentials for the refresh |
@@ -107,10 +109,18 @@ parsed.
 
 ## Attachments
 
-The team profile does not download attachments by default (no jsonl to walk).
-Thread pages link to attachments via their Slack permalink — visitors click
-through to Slack. To serve attachments locally, run the refresh with
-`SLACK_LOG_EMIT_JSONL=1` and point `SqliteStore` at the attachments root.
+The team refresh downloads attachments by default. `attach` reads the file
+list straight from search.db's `message_raw` table — no jsonl needed — and
+stores files under `data/channels/<cid>/attachments/`, which the server
+serves at `/channels/<cid>/attachments/<file>`.
+
+Large files would balloon the volume, so `SLACK_LOG_ATTACHMENT_MAX_MB`
+(default 10) caps per-file size: anything larger stays metadata-only and its
+thread page links through to Slack instead. `SLACK_LOG_ATTACHMENTS=0` turns
+downloading off entirely (every file becomes a Slack link).
+
+The mime policy still applies on top of the cap: images / text / code / pdf
+download; archives, video and audio are always metadata-only.
 
 ## CI/CD
 

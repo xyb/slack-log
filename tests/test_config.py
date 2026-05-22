@@ -57,6 +57,21 @@ def test_emit_jsonl_truthiness():
     assert Config.from_env({"SLACK_LOG_EMIT_JSONL": "0"}).emit_jsonl is False
 
 
+def test_attachment_settings_default_on():
+    cfg = Config.from_env({})
+    assert cfg.download_attachments is True   # both profiles download by default
+    assert cfg.attachment_max_mb == 10
+
+
+def test_attachment_settings_overrides():
+    cfg = Config.from_env({
+        "SLACK_LOG_ATTACHMENTS": "0",
+        "SLACK_LOG_ATTACHMENT_MAX_MB": "25",
+    })
+    assert cfg.download_attachments is False
+    assert cfg.attachment_max_mb == 25
+
+
 def test_sync_settings():
     cfg = Config.from_env({"SLACK_LOG_SYNC_TOKEN": "tok", "SLACK_LOG_SYNC_INTERVAL": "3600"})
     assert cfg.sync_token == "tok"

@@ -1,26 +1,35 @@
 #!/usr/bin/env python3
 """
-Walk every thread jsonl, download attachments according to mime/size policy.
+Download Slack attachments by a mime / size policy.
+
+Two file sources, one per profile:
+- personal — walk the data/ jsonl layer (iter_files_from_jsonl)
+- team     — read search.db's message_raw table (iter_files_from_sqlite)
+
+Both write into the same place: <data_root>/channels/<cid>/attachments/, with
+a `<file_id>.meta.json` for every file (downloaded or not — the original Slack
+URL is preserved so a skipped file can be fetched later).
 
 Policy:
-- Images / text / code snippets / PDF (<10MB): download + write .meta.json
-- zip / video / large archives: write .meta.json only (preserves url_private_download)
+- images / text / code snippets / json / yaml / pdf, under the size cap → download
+- zip / tar / gzip / video / audio → metadata only, always
+- anything over the size cap (--max-mb, default 10) → metadata only
 
 Auth: xoxc Slack browser token + xoxd cookie. Resolved in this order:
-  1. Environment variables SLACK_XOXC / SLACK_XOXD (both required as a pair)
+  1. environment variables SLACK_XOXC / SLACK_XOXD (both required as a pair)
   2. ./.env in the current working directory
   3. ~/.config/slack-log/.env (XDG-respecting)
   4. RuntimeError with instructions
-
-Files use the standard .env format parsed by python-dotenv.
 """
 
 import argparse
 import json
 import os
+import sqlite3
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Iterator
 
 from dotenv import dotenv_values
 from tqdm import tqdm
@@ -31,29 +40,30 @@ USER_DOTENV = Path(
     os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
 ) / "slack-log" / ".env"
 
-# (mimetype 前缀, 最大字节)
-DOWNLOAD_RULES = [
-    ("image/", 10 * 1024 * 1024),       # 图片 <10MB 下载
-    ("text/", 5 * 1024 * 1024),         # 文本 <5MB
-    ("application/json", 5 * 1024 * 1024),
-    ("application/yaml", 5 * 1024 * 1024),
-    ("application/pdf", 20 * 1024 * 1024),
-    ("application/x-python", 5 * 1024 * 1024),
-]
-# 永不下载（即使小）
-NEVER_DOWNLOAD = ["application/zip", "application/x-tar", "application/x-gzip", "video/", "audio/"]
+DEFAULT_MAX_MB = 10
+
+# mimetypes worth keeping a local copy of (subject to the size cap).
+DOWNLOADABLE_PREFIXES = (
+    "image/", "text/", "application/json", "application/yaml",
+    "application/pdf", "application/x-python",
+)
+# never download, whatever the size — archives and media balloon the volume.
+NEVER_DOWNLOAD = ("application/zip", "application/x-tar", "application/x-gzip",
+                  "video/", "audio/")
 
 
-def should_download(mimetype: str, size: int) -> bool:
+def should_download(mimetype: str, size: int, max_bytes: int) -> bool:
+    """True when a file should be downloaded rather than left metadata-only.
+
+    max_bytes is the configurable large-attachment cap (see --max-mb)."""
     if not mimetype:
         return False
     for prefix in NEVER_DOWNLOAD:
         if mimetype.startswith(prefix):
             return False
-    for prefix, max_size in DOWNLOAD_RULES:
-        if mimetype.startswith(prefix):
-            return size <= max_size
-    return False  # 默认不下载
+    if any(mimetype.startswith(p) for p in DOWNLOADABLE_PREFIXES):
+        return size <= max_bytes
+    return False
 
 
 def load_token() -> tuple[str, str]:
@@ -94,96 +104,148 @@ def download_file(url: str, dst: Path, xoxc: str, xoxd: str) -> bool:
         return False
 
 
-def process_channel(channel_dir: Path, xoxc: str, xoxd: str) -> dict:
-    """遍历 channel/threads/*.jsonl 的 files，按阈值下载或只存 meta。"""
-    att_dir = channel_dir / "attachments"
-    att_dir.mkdir(exist_ok=True)
+# --- file sources ---------------------------------------------------------
 
-    stats = {"meta_only": 0, "downloaded": 0, "failed": 0}
 
-    for jsonl in (channel_dir / "threads").glob("*.jsonl"):
-        with open(jsonl) as f:
-            for line in f:
-                msg = json.loads(line)
-                for file_obj in msg.get("files") or []:
-                    fid = file_obj.get("id")
-                    if not fid:
-                        continue
-                    mimetype = file_obj.get("mimetype", "")
-                    size = file_obj.get("size", 0)
+def iter_files_from_jsonl(data_root: Path) -> Iterator[tuple[str, str, dict]]:
+    """Personal profile — yield (channel_id, msg_ts, file_obj) from the jsonl layer."""
+    channels_root = data_root / "channels"
+    if not channels_root.exists():
+        return
+    for cdir in sorted(channels_root.iterdir()):
+        threads = cdir / "threads"
+        if not threads.is_dir():
+            continue
+        for jsonl in sorted(threads.glob("*.jsonl")):
+            try:
+                lines = jsonl.read_text().splitlines()
+            except OSError:
+                continue
+            for raw in lines:
+                if not raw.strip():
+                    continue
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                for f in msg.get("files") or []:
+                    yield cdir.name, msg.get("ts"), f
 
-                    # meta.json 永远生成
-                    meta_path = att_dir / f"{fid}.meta.json"
-                    meta = {
-                        "id": fid,
-                        "name": file_obj.get("name"),
-                        "mimetype": mimetype,
-                        "size": size,
-                        "filetype": file_obj.get("filetype"),
-                        "url_private_download": file_obj.get("url_private_download"),
-                        "url_private": file_obj.get("url_private"),
-                        "permalink": file_obj.get("permalink"),
-                        "created": file_obj.get("created"),
-                        "user": file_obj.get("user"),
-                        "_source_msg_ts": msg.get("ts"),
-                        "_source_channel": channel_dir.name,
-                    }
-                    download_flag = should_download(mimetype, size)
-                    meta["_downloaded"] = False
-                    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
 
-                    if not download_flag:
-                        stats["meta_only"] += 1
-                        continue
+def iter_files_from_sqlite(search_db: Path) -> Iterator[tuple[str, str, dict]]:
+    """Team profile — yield (channel_id, msg_ts, file_obj) from search.db's
+    message_raw table, so attachments work with no jsonl layer."""
+    conn = sqlite3.connect(search_db)
+    try:
+        for cid, ts, data in conn.execute(
+            "SELECT channel_id, ts, data FROM message_raw"
+        ):
+            try:
+                msg = json.loads(data)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            for f in msg.get("files") or []:
+                yield cid, ts, f
+    finally:
+        conn.close()
 
-                    # 用文件原扩展名（filetype）拼下载文件路径
-                    ft = file_obj.get("filetype") or "bin"
-                    dst = att_dir / f"{fid}.{ft}"
-                    if dst.exists():
-                        meta["_downloaded"] = True
-                        meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
-                        stats["downloaded"] += 1
-                        continue
 
-                    url = file_obj.get("url_private_download") or file_obj.get("url_private")
-                    if not url:
-                        stats["meta_only"] += 1
-                        continue
+# --- download -------------------------------------------------------------
 
-                    # Wrap the download call: any unexpected exception (SSL,
-                    # disk full, ConnectionReset, etc. that download_file's
-                    # inner try/except doesn't cover) must not abort the loop.
-                    try:
-                        ok = download_file(url, dst, xoxc, xoxd)
-                    except Exception as e:
-                        print(f"  ❌ {fid}: unexpected {type(e).__name__}: {e}")
-                        ok = False
-                    if ok:
-                        meta["_downloaded"] = True
-                        meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
-                        stats["downloaded"] += 1
-                    else:
-                        dst.unlink(missing_ok=True)
-                        stats["failed"] += 1
+
+def download_attachments(file_iter: Iterator[tuple[str, str, dict]], data_root: Path,
+                         xoxc: str, xoxd: str, max_bytes: int) -> dict:
+    """Download every file from file_iter into data_root/channels/<cid>/attachments/.
+
+    Writes <file_id>.meta.json for every file. A single failure (bad URL, SSL,
+    disk error) is recorded and the walk continues."""
+    stats = {"downloaded": 0, "meta_only": 0, "failed": 0}
+    for cid, msg_ts, file_obj in tqdm(file_iter, desc="attach", unit="file"):
+        fid = file_obj.get("id")
+        if not fid:
+            continue
+        att_dir = data_root / "channels" / cid / "attachments"
+        att_dir.mkdir(parents=True, exist_ok=True)
+        mimetype = file_obj.get("mimetype", "")
+        size = file_obj.get("size", 0)
+
+        meta_path = att_dir / f"{fid}.meta.json"
+        meta = {
+            "id": fid,
+            "name": file_obj.get("name"),
+            "mimetype": mimetype,
+            "size": size,
+            "filetype": file_obj.get("filetype"),
+            "url_private_download": file_obj.get("url_private_download"),
+            "url_private": file_obj.get("url_private"),
+            "permalink": file_obj.get("permalink"),
+            "created": file_obj.get("created"),
+            "user": file_obj.get("user"),
+            "_source_msg_ts": msg_ts,
+            "_source_channel": cid,
+            "_downloaded": False,
+        }
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
+
+        if not should_download(mimetype, size, max_bytes):
+            stats["meta_only"] += 1
+            continue
+
+        ft = file_obj.get("filetype") or "bin"
+        dst = att_dir / f"{fid}.{ft}"
+        if dst.exists():
+            meta["_downloaded"] = True
+            meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
+            stats["downloaded"] += 1
+            continue
+
+        url = file_obj.get("url_private_download") or file_obj.get("url_private")
+        if not url:
+            stats["meta_only"] += 1
+            continue
+
+        # Any unexpected exception (SSL, disk full, ConnectionReset, …) must not
+        # abort the walk — record it and move on.
+        try:
+            ok = download_file(url, dst, xoxc, xoxd)
+        except Exception as e:  # noqa: BLE001
+            print(f"  ❌ {fid}: unexpected {type(e).__name__}: {e}")
+            ok = False
+        if ok:
+            meta["_downloaded"] = True
+            meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
+            stats["downloaded"] += 1
+        else:
+            dst.unlink(missing_ok=True)
+            stats["failed"] += 1
 
     return stats
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("data_root", type=Path, default=Path("./data"), nargs="?")
+    ap = argparse.ArgumentParser(description="Download Slack attachments by mime/size policy")
+    ap.add_argument("data_root", type=Path, default=Path("./data"), nargs="?",
+                    help="where channels/<cid>/attachments/ are written")
+    ap.add_argument("--sqlite", type=Path, default=None,
+                    help="team profile: read the file list from this search.db's "
+                         "message_raw table instead of the jsonl layer")
+    ap.add_argument("--max-mb", type=int, default=DEFAULT_MAX_MB,
+                    help=f"skip an attachment larger than this many MB "
+                         f"(default {DEFAULT_MAX_MB})")
     args = ap.parse_args()
 
     xoxc, xoxd = load_token()
-
-    channels_root = args.data_root / "channels"
-    channel_dirs = [c for c in channels_root.iterdir() if c.is_dir()]
-    totals = {"downloaded": 0, "meta_only": 0, "failed": 0}
-    for cdir in tqdm(channel_dirs, desc="channels", unit="ch"):
-        stats = process_channel(cdir, xoxc, xoxd)
-        for k in totals:
-            totals[k] += stats[k]
-    print(f"✅ done — downloaded={totals['downloaded']} meta_only={totals['meta_only']} failed={totals['failed']}")
+    max_bytes = args.max_mb * 1024 * 1024
+    if args.sqlite:
+        files = iter_files_from_sqlite(args.sqlite)
+        source = f"{args.sqlite} (message_raw)"
+    else:
+        files = iter_files_from_jsonl(args.data_root)
+        source = f"{args.data_root} (jsonl)"
+    print(f"attach: source={source} → {args.data_root} · cap={args.max_mb}MB")
+    stats = download_attachments(files, args.data_root, xoxc, xoxd, max_bytes)
+    print(f"✅ done — downloaded={stats['downloaded']} "
+          f"meta_only={stats['meta_only']} failed={stats['failed']}")
 
 
 if __name__ == "__main__":

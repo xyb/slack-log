@@ -334,7 +334,7 @@ def create_app_from_env() -> FastAPI:
     cfg = Config.from_env()
     store: ArchiveStore
     if cfg.is_team:
-        store = SqliteStore(db_path=cfg.db_path)
+        store = SqliteStore(db_path=cfg.db_path, data_root=cfg.data_root)
     else:
         store = JsonlStore(data_root=cfg.data_root, db_path=cfg.db_path)
     return create_app(
@@ -362,7 +362,7 @@ def main():
     import uvicorn
     store: ArchiveStore
     if args.profile == "team":
-        store = SqliteStore(db_path=args.db)
+        store = SqliteStore(db_path=args.db, data_root=args.data)
     else:
         store = JsonlStore(data_root=args.data, db_path=args.db)
     app = create_app(store, include=include)

@@ -13,12 +13,13 @@ PY ?= python3
 HOST ?= 127.0.0.1
 PORT ?= 8770
 INCLUDE ?=
+MAX_MB ?= 10
 _INCLUDE_ARG = $(if $(INCLUDE),--include $(INCLUDE),)
 
 .PHONY: help \
         personal-build personal-serve render-static \
         team-build team-serve \
-        fetch reconcile split attach index team-index \
+        fetch reconcile split attach index team-index team-attach \
         test clean-html clean-all
 
 help:
@@ -28,8 +29,9 @@ help:
 	@echo "  make render-static       export static HTML to html-static/"
 	@echo ""
 	@echo "Team profile — server, search.db only (no jsonl):"
-	@echo "  make team-build          fetch -> index (ETL from slackdump.sqlite)"
+	@echo "  make team-build          fetch -> index (ETL) -> attach"
 	@echo "  make team-serve          run the web service (reads search.db)"
+	@echo "  (MAX_MB=N caps attachment size, default 10)"
 	@echo ""
 	@echo "Building blocks / misc:"
 	@echo "  make fetch               slackdump archive --resume (cheap, additive)"
@@ -52,7 +54,7 @@ render-static:
 
 # --- team profile ---------------------------------------------------------
 
-team-build: fetch team-index
+team-build: fetch team-index team-attach
 
 team-serve:
 	$(PY) -m slack_log.web.app --profile team --db ./search.db \
@@ -75,8 +77,9 @@ reconcile:
 split:
 	$(PY) -m slack_log.pipeline.split raw/slackdump.sqlite -o ./data
 
+# personal: download attachments by walking the jsonl layer (MAX_MB size cap)
 attach:
-	$(PY) -m slack_log.pipeline.attach ./data
+	$(PY) -m slack_log.pipeline.attach ./data --max-mb $(MAX_MB)
 
 # personal: index from the jsonl layer
 index:
@@ -85,6 +88,10 @@ index:
 # team: ETL straight from slackdump.sqlite — no jsonl in between
 team-index:
 	$(PY) -m slack_log.pipeline.index --profile team --sqlite raw/slackdump.sqlite --db ./search.db $(_INCLUDE_ARG)
+
+# team: download attachments by walking search.db's message_raw (no jsonl)
+team-attach:
+	$(PY) -m slack_log.pipeline.attach ./data --sqlite ./search.db --max-mb $(MAX_MB)
 
 test:
 	$(PY) -m pytest

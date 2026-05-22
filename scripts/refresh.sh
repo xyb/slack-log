@@ -26,6 +26,8 @@ ROOT="${SLACK_LOG_ROOT:-/data}"
 PROFILE="${SLACK_LOG_PROFILE:-personal}"
 INCLUDE="${SLACK_LOG_INCLUDE:-channel}"
 EMIT_JSONL="${SLACK_LOG_EMIT_JSONL:-}"
+ATTACHMENTS="${SLACK_LOG_ATTACHMENTS:-1}"          # download attachments? default on
+ATTACH_MAX_MB="${SLACK_LOG_ATTACHMENT_MAX_MB:-10}"  # skip attachments bigger than this
 cd "$ROOT"
 mkdir -p raw data
 rm -rf html   # legacy static render output — server renders dynamically now
@@ -48,26 +50,33 @@ echo "[refresh] $(date -u +%FT%TZ) slackdump archive..."
 # every file would balloon the PVC (it tried 1148 dirs and filled 3Gi).
 slackdump archive -no-encryption -files=false -o raw
 
-# split + attach — writes the jsonl data layer. Best-effort attach: search and
-# text browsing work without it, thread pages just show the image fallback.
-split_and_attach() {
-  echo "[refresh] split..."
-  python3 -m slack_log.pipeline.split raw/slackdump.sqlite -o data
-  echo "[refresh] attach (best-effort, 20min cap)..."
-  timeout 1200 python3 -m slack_log.pipeline.attach data \
+# attach — best-effort (20min cap): search and text browsing work without it,
+# thread pages just show the image fallback. The file list comes from the jsonl
+# layer (personal) or search.db's message_raw table (team); either way files
+# land in data/channels/<cid>/attachments/.
+run_attach() {  # $1 = extra args (e.g. --sqlite search.db)
+  case "$ATTACHMENTS" in
+    0|false|no|off|"") echo "[refresh] attachments disabled (SLACK_LOG_ATTACHMENTS)"; return;;
+  esac
+  echo "[refresh] attach (best-effort, 20min cap, ${ATTACH_MAX_MB}MB limit)..."
+  timeout 1200 python3 -m slack_log.pipeline.attach data --max-mb "$ATTACH_MAX_MB" $1 \
     || echo "[refresh] attach incomplete (timeout/error) — continuing"
 }
 
 if [ "$PROFILE" = "team" ]; then
   if [ -n "$EMIT_JSONL" ]; then
     echo "[refresh] SLACK_LOG_EMIT_JSONL set — also writing the jsonl layer"
-    split_and_attach
+    python3 -m slack_log.pipeline.split raw/slackdump.sqlite -o data
   fi
   echo "[refresh] index (team ETL straight from slackdump.sqlite)..."
   python3 -m slack_log.pipeline.index --profile team --sqlite raw/slackdump.sqlite \
     --db search.db --include "$INCLUDE"
+  # team has no jsonl — attach reads the file list from search.db's message_raw.
+  run_attach "--sqlite search.db"
 else
-  split_and_attach
+  echo "[refresh] split..."
+  python3 -m slack_log.pipeline.split raw/slackdump.sqlite -o data
+  run_attach ""
   echo "[refresh] index (personal, from the jsonl layer)..."
   python3 -m slack_log.pipeline.index --profile personal --data data \
     --db search.db --include "$INCLUDE"

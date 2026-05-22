@@ -119,4 +119,5 @@ Standard `.env` format, parsed by
 - `data/` is precious — attachment downloads are slow. Only `make clean-all`
   removes it; `make clean-html` leaves it alone.
 - A big zip or video gets a `.meta.json` only (with the original Slack URL) —
-  not the file itself.
+  not the file itself. `make attach MAX_MB=N` sets the size cap (default 10);
+  anything larger stays metadata-only.

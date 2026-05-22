@@ -19,13 +19,13 @@ from slack_log.store.base import ArchiveStore, assemble_global_groups
 class SqliteStore(ArchiveStore):
     """Team profile — the extended search.db is the single source of truth."""
 
-    def __init__(self, db_path: Path, attachments_root: Path | None = None):
+    def __init__(self, db_path: Path, data_root: Path | None = None):
         self.search_db = Path(db_path)
-        # Team attachments, if any, live under this root as <root>/<cid>/<file>;
-        # when absent, render_files just falls back to Slack permalinks.
-        self._attachments_root = (
-            Path(attachments_root) if attachments_root
-            else self.search_db.parent / "attachments"
+        # attach.py downloads team attachments into data_root/channels/<cid>/
+        # attachments/ — the same layout the personal profile uses. Default
+        # beside the db for the standard <root>/{search.db, data/} layout.
+        self._data_root = (
+            Path(data_root) if data_root else self.search_db.parent / "data"
         )
         self._users: dict | None = None
         self._channels: dict | None = None
@@ -120,7 +120,7 @@ class SqliteStore(ArchiveStore):
         return assemble_global_groups(entries, self.users(), include)
 
     def attachments_dir(self, cid: str) -> Path:
-        return self._attachments_root / cid
+        return self._data_root / "channels" / cid / "attachments"
 
     def fetched_at(self) -> str:
         try:
