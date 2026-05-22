@@ -30,7 +30,7 @@ dev = ["ruff>=0.15"]
 [project.scripts]
 slack-log-split  = "slack_log.pipeline.split:main"
 slack-log-attach = "slack_log.pipeline.attach:main"
-slack-log-render = "slack_log.pipeline.render:main"
+slack-log-render = "slack_log.web.static_export:main"
 slack-log-index  = "slack_log.pipeline.index:main"
 slack-log-serve  = "slack_log.web.app:main"
 

@@ -48,7 +48,7 @@ personal-serve:
 
 render-static:
 	rm -rf html-static
-	$(PY) -m slack_log.pipeline.render --flavor=static --html=./html-static --include=channel
+	$(PY) -m slack_log.web.static_export --flavor=static --html=./html-static --include=channel
 
 # --- team profile ---------------------------------------------------------
 

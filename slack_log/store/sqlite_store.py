@@ -13,8 +13,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from slack_log.pipeline import render
-from slack_log.store.base import ArchiveStore
+from slack_log.store.base import ArchiveStore, assemble_global_groups
 
 
 class SqliteStore(ArchiveStore):
@@ -118,7 +117,7 @@ class SqliteStore(ArchiveStore):
                     "FROM channels"
                 )
             ]
-        return render.assemble_global_groups(entries, self.users(), include)
+        return assemble_global_groups(entries, self.users(), include)
 
     def attachments_dir(self, cid: str) -> Path:
         return self._attachments_root / cid

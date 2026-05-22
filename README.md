@@ -141,8 +141,8 @@ layer, the extended `search.db` schema — in
 | `slack_log/core/` | shared layer — `slackdump_db` (read the archive SQLite) + `text` (Slack text processing) |
 | `slack_log/store/` | `ArchiveStore` abstraction + `JsonlStore` (personal) / `SqliteStore` (team) |
 | `slack_log/config.py` | `Profile` enum + `Config.from_env` |
-| `slack_log/pipeline/` | data processing — `split` · `attach` · `index` · `render` |
-| `slack_log/web/` | serving — `app` (FastAPI) · `auth` (OIDC SSO) · `sync` (refresh) |
+| `slack_log/pipeline/` | data processing — `split` · `attach` · `index` |
+| `slack_log/web/` | serving — `app` (FastAPI) · `presenter` · `static_export` · `auth` · `sync` |
 | `deploy/k8s/` | sanitized Kubernetes manifests (`*.example.yaml`) |
 | `docs/` | `personal.md` · `team.md` · `architecture.md` · `CICD.md` |
 

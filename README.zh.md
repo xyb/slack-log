@@ -126,8 +126,8 @@ server 只依赖 `ArchiveStore`；`JsonlStore` 和 `SqliteStore` 是两个后端
 | `slack_log/core/` | 共享层——`slackdump_db`（读归档 SQLite）+ `text`（Slack 文本处理）|
 | `slack_log/store/` | `ArchiveStore` 抽象 + `JsonlStore`（个人）/ `SqliteStore`（团队）|
 | `slack_log/config.py` | `Profile` 枚举 + `Config.from_env` |
-| `slack_log/pipeline/` | 数据处理——`split` · `attach` · `index` · `render` |
-| `slack_log/web/` | 服务层——`app`（FastAPI）· `auth`（OIDC SSO）· `sync`（刷新）|
+| `slack_log/pipeline/` | 数据处理——`split` · `attach` · `index` |
+| `slack_log/web/` | 服务层——`app`（FastAPI）· `presenter` · `static_export` · `auth` · `sync` |
 | `deploy/k8s/` | 脱敏的 Kubernetes 部署文件（`*.example.yaml`）|
 | `docs/` | `personal.md` · `team.md` · `architecture.md` · `CICD.md` |
 

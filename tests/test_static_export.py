@@ -1,17 +1,21 @@
-"""Integration tests: render.main() against a minimal data/ directory."""
+"""Integration tests for web.static_export — data/ → static HTML."""
 
 import json
 import sys
 from pathlib import Path
 
 import pytest
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from slack_log.pipeline import render
+from slack_log.store import JsonlStore
+from slack_log.web import static_export
+
+_TEMPLATES = Path(static_export.__file__).parent.parent / "templates"
 
 
 @pytest.fixture
 def minimal_data(tmp_path: Path) -> Path:
-    """Create a minimal data/ tree that render.main() can ingest."""
+    """Create a minimal data/ tree the exporter can ingest."""
     data = tmp_path / "data"
     cdir = data / "channels" / "C001"
     threads = cdir / "threads"
@@ -55,15 +59,13 @@ def minimal_data(tmp_path: Path) -> Path:
 
 def test_main_renders_full_site(minimal_data: Path, tmp_path: Path, monkeypatch):
     html = tmp_path / "html"
-    templates = Path(render.__file__).parent.parent / "templates"
-
     monkeypatch.setattr(sys, "argv", [
-        "render.py",
+        "static_export.py",
         "--data", str(minimal_data),
         "--html", str(html),
-        "--templates", str(templates),
+        "--templates", str(_TEMPLATES),
     ])
-    render.main()
+    static_export.main()
 
     # Global index lists the channel
     global_index = (html / "index.html").read_text()
@@ -86,16 +88,14 @@ def test_main_renders_full_site(minimal_data: Path, tmp_path: Path, monkeypatch)
 def test_main_with_include_filter(minimal_data: Path, tmp_path: Path, monkeypatch):
     """--include=dm should skip the only channel (which is is_channel=True)."""
     html = tmp_path / "html"
-    templates = Path(render.__file__).parent.parent / "templates"
-
     monkeypatch.setattr(sys, "argv", [
-        "render.py",
+        "static_export.py",
         "--data", str(minimal_data),
         "--html", str(html),
-        "--templates", str(templates),
+        "--templates", str(_TEMPLATES),
         "--include", "dm",
     ])
-    render.main()
+    static_export.main()
 
     # Channel page should NOT have been written
     assert not (html / "channels" / "C001" / "index.html").exists()
@@ -105,16 +105,14 @@ def test_main_with_include_filter(minimal_data: Path, tmp_path: Path, monkeypatc
 
 
 def test_static_html_links_relative_with_html_suffix(minimal_data: Path, tmp_path: Path, monkeypatch):
-    """Static-mode render must produce links a pure `python -m http.server` can serve:
+    """Static-mode export must produce links a pure `python -m http.server` can serve:
     .html suffix on threads + relative paths from each page back to the index."""
     html = tmp_path / "html"
-    templates = Path(render.__file__).parent.parent / "templates"
-
     monkeypatch.setattr(sys, "argv", [
-        "render.py", "--data", str(minimal_data), "--html", str(html),
-        "--templates", str(templates), "--flavor", "static",
+        "static_export.py", "--data", str(minimal_data), "--html", str(html),
+        "--templates", str(_TEMPLATES), "--flavor", "static",
     ])
-    render.main()
+    static_export.main()
 
     global_index = (html / "index.html").read_text()
     # Channel link is relative + .html (so http.server can serve it directly).
@@ -135,20 +133,18 @@ def test_static_html_links_relative_with_html_suffix(minimal_data: Path, tmp_pat
 
 
 def test_static_site_self_contained(minimal_data: Path, tmp_path: Path, monkeypatch):
-    """Every relative href produced by render.main() must resolve to a real file."""
+    """Every relative href the exporter produces must resolve to a real file."""
     import re
     html = tmp_path / "html"
-    templates = Path(render.__file__).parent.parent / "templates"
-
     monkeypatch.setattr(sys, "argv", [
-        "render.py", "--data", str(minimal_data), "--html", str(html),
-        "--templates", str(templates), "--flavor", "static",
+        "static_export.py", "--data", str(minimal_data), "--html", str(html),
+        "--templates", str(_TEMPLATES), "--flavor", "static",
     ])
-    render.main()
+    static_export.main()
 
     href_re = re.compile(r'href="([^"#?]+)"')
     pages = list(html.rglob("*.html"))
-    assert pages, "render produced no pages"
+    assert pages, "export produced no pages"
     for page in pages:
         body = page.read_text()
         for href in href_re.findall(body):
@@ -160,12 +156,53 @@ def test_static_site_self_contained(minimal_data: Path, tmp_path: Path, monkeypa
 
 def test_footer_includes_fetched_and_generated(minimal_data: Path, tmp_path: Path, monkeypatch):
     html = tmp_path / "html"
-    templates = Path(render.__file__).parent.parent / "templates"
     monkeypatch.setattr(sys, "argv", [
-        "render.py", "--data", str(minimal_data), "--html", str(html),
-        "--templates", str(templates),
+        "static_export.py", "--data", str(minimal_data), "--html", str(html),
+        "--templates", str(_TEMPLATES),
     ])
-    render.main()
+    static_export.main()
 
     body = (html / "index.html").read_text()
     assert "数据抓取" in body and "页面生成" in body
+
+
+def test_one_broken_thread_does_not_stop_channel(tmp_path: Path):
+    """A thread whose jsonl can't be parsed must not stop sibling threads —
+    render_channel_html catches the failure and writes the channel index anyway."""
+    cdir = tmp_path / "data" / "channels" / "C001"
+    threads = cdir / "threads"
+    threads.mkdir(parents=True)
+
+    (threads / "T1.jsonl").write_text(
+        json.dumps({"ts": "T1", "user": "U1", "text": "hi"}) + "\n"
+    )
+    (threads / "T2.jsonl").write_text("not-valid-json{{{\n")  # broken
+    (cdir / "index.jsonl").write_text(
+        json.dumps({
+            "thread_ts": "T1", "first_ts": "T1", "first_user": "U1",
+            "first_text_preview": "hi", "latest_reply_ts": "T1",
+            "reply_count": 0, "msg_count": 1, "is_thread": False,
+            "has_files": False, "participants": ["U1"],
+        }) + "\n" +
+        json.dumps({
+            "thread_ts": "T2", "first_ts": "T2", "first_user": "U1",
+            "first_text_preview": "broken", "latest_reply_ts": "T2",
+            "reply_count": 0, "msg_count": 1, "is_thread": False,
+            "has_files": False, "participants": ["U1"],
+        }) + "\n"
+    )
+
+    env = Environment(
+        loader=FileSystemLoader(str(_TEMPLATES / "static")),
+        autoescape=select_autoescape(["html"]),
+    )
+    html_root = tmp_path / "html"
+    (html_root / "channels").mkdir(parents=True)
+
+    store = JsonlStore(data_root=tmp_path / "data")
+    static_export.render_channel_html("C001", store, html_root, env, "2026-05-20 TEST")
+
+    assert (html_root / "channels" / "C001" / "threads" / "T1.html").exists(), \
+        "T1 (valid) should render even though T2 fails"
+    assert (html_root / "channels" / "C001" / "index.html").exists(), \
+        "channel index should still be written"

@@ -8,16 +8,19 @@ files; full-text search comes from search.db (handled by the base class).
 import json
 from pathlib import Path
 
-from slack_log.pipeline import render
-from slack_log.store.base import ArchiveStore
+from slack_log.store.base import ArchiveStore, assemble_global_groups
 
 
 class JsonlStore(ArchiveStore):
-    """Personal profile — the data/ jsonl directory is the source of truth."""
+    """Personal profile — the data/ jsonl directory is the source of truth.
 
-    def __init__(self, data_root: Path, db_path: Path):
+    db_path is optional: the static-HTML exporter builds a JsonlStore purely to
+    read pages and never touches search.db.
+    """
+
+    def __init__(self, data_root: Path, db_path: Path | None = None):
         self.data_root = Path(data_root)
-        self.search_db = Path(db_path)
+        self.search_db = Path(db_path) if db_path else None
         self._users: dict | None = None
         self._channels: dict | None = None
 
@@ -40,18 +43,38 @@ class JsonlStore(ArchiveStore):
         return sorted(c.name for c in croot.iterdir() if c.is_dir())
 
     def thread_meta(self, cid: str) -> list[dict]:
-        return render.load_thread_meta(self.data_root / "channels" / cid)
+        index_path = self.data_root / "channels" / cid / "index.jsonl"
+        out: list[dict] = []
+        if index_path.exists():
+            with open(index_path) as f:
+                for line in f:
+                    if line.strip():
+                        out.append(json.loads(line))
+        return out
 
     def load_thread(self, cid: str, ts: str) -> list[dict] | None:
         ttp = self.data_root / "channels" / cid / "threads" / f"{ts}.jsonl"
         if not ttp.exists():
             return None
-        return render.load_thread(ttp)
+        msgs: list[dict] = []
+        with open(ttp) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    msgs.append(json.loads(line))
+        return msgs
 
     def global_groups(self, include: set[str] | None = None) -> dict:
-        return render.build_global_groups(
-            self.data_root, self.channels(), self.users(), include=include
-        )
+        entries: list[tuple] = []
+        croot = self.data_root / "channels"
+        if croot.exists():
+            for cdir in croot.iterdir():
+                if not cdir.is_dir():
+                    continue
+                threads = cdir / "threads"
+                n_threads = len(list(threads.glob("*.jsonl"))) if threads.exists() else 0
+                entries.append((cdir.name, self.channels().get(cdir.name), n_threads))
+        return assemble_global_groups(entries, self.users(), include)
 
     def attachments_dir(self, cid: str) -> Path:
         return self.data_root / "channels" / cid / "attachments"

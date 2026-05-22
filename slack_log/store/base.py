@@ -109,3 +109,45 @@ class ArchiveStore(ABC):
         for r in rows:
             r["text"] = index.join_cjk(r["text"])
         return rows
+
+
+def assemble_global_groups(entries: list[tuple], users: dict,
+                           include: set | None = None) -> dict:
+    """Pure: turn (cid, cinfo, thread_count) tuples into {channels, dms, mpims}.
+
+    Shared by JsonlStore and SqliteStore so the two profiles group the home
+    page identically. Sorts are fully deterministic (id tiebreaker) so the
+    result does not depend on the order entries arrive in.
+    """
+    include = include or {"channel", "dm", "mpim"}
+    real_channels, dms, mpims = [], [], []
+    for cid, cinfo, n_threads in entries:
+        cinfo = cinfo or {}
+        if cinfo.get("is_im"):
+            kind = "dm"
+        elif cinfo.get("is_mpim"):
+            kind = "mpim"
+        else:
+            kind = "channel"
+        if kind not in include:
+            continue
+        item = {"id": cid, "name": cinfo.get("name") or cid, "thread_count": n_threads}
+        if kind == "dm":
+            other_uid = cinfo.get("other_uid")
+            other_user = users.get(other_uid) if other_uid else None
+            item["avatar"] = (other_user or {}).get("image_72") if other_user else None
+            dms.append(item)
+        elif kind == "mpim":
+            members = cinfo.get("members") or []
+            item["avatars"] = [
+                (users.get(m) or {}).get("image_48")
+                for m in members[:5]
+                if (users.get(m) or {}).get("image_48")
+            ]
+            mpims.append(item)
+        else:
+            real_channels.append(item)
+    real_channels.sort(key=lambda c: (c["name"], c["id"]))
+    dms.sort(key=lambda c: (-c["thread_count"], c["id"]))
+    mpims.sort(key=lambda c: (-c["thread_count"], c["id"]))
+    return {"channels": real_channels, "dms": dms, "mpims": mpims}

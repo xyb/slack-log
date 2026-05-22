@@ -31,8 +31,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from slack_log.config import Config
-from slack_log.pipeline import render
 from slack_log.store import ArchiveStore, JsonlStore, SqliteStore
+from slack_log.web import presenter
 from slack_log.web.auth import auth_config_from_env, install_auth
 from slack_log.web.sync import SyncManager, scheduler_loop
 
@@ -284,7 +284,7 @@ def create_app(
     def channel_index(cid: str):
         if cid not in store.list_channels():
             raise HTTPException(status_code=404, detail=f"channel {cid} not found")
-        threads_meta = render.enrich_thread_meta(
+        threads_meta = presenter.enrich_thread_meta(
             store.thread_meta(cid), store.users(), store.channels())
         tmpl = env.get_template("channel_index.html")
         return HTMLResponse(tmpl.render(
@@ -296,7 +296,7 @@ def create_app(
         raw = store.load_thread(cid, ts)
         if raw is None:
             raise HTTPException(status_code=404, detail=f"thread {ts} not found")
-        msgs = render.enrich_messages(
+        msgs = presenter.enrich_messages(
             raw, store.users(), store.channels(), store.attachments_dir(cid))
         tm = next((t for t in store.thread_meta(cid) if t.get("thread_ts") == ts), None)
         if tm is None:

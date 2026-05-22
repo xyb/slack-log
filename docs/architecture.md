@@ -32,9 +32,10 @@ slack_log/
     split.py          slackdump.sqlite → data/ jsonl (personal)
     attach.py         download attachments by mime/size policy
     index.py          build search.db — FTS index + the team ETL
-    render.py         shared render helpers + the static-HTML exporter
   web/         the serving layer
     app.py            FastAPI app — depends only on an ArchiveStore
+    presenter.py      raw archive data → template-ready context
+    static_export.py  the no-backend static-HTML exporter
     auth.py           optional OIDC SSO + access logging
     sync.py           in-process refresh manager
   templates/   server/ and static/ Jinja2 flavors
