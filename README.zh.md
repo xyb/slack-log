@@ -4,54 +4,42 @@
 
 [![CI](https://github.com/xyb/slack-log/actions/workflows/ci.yml/badge.svg)](https://github.com/xyb/slack-log/actions/workflows/ci.yml)
 
-把一个 Slack workspace 变成一个**可搜索的 web 服务**，带永久 ref-id 锚点——动态页面、
-全文检索、可选 OIDC SSO；底层是一份**给 AI / shell `grep` 直接读的 JSONL 数据层**。
-也能导出纯静态 HTML，用于没有后端的托管场景。
+把一个 Slack workspace 变成能真正读、能 `grep`、能搜的东西——带永久 ref-id 锚点，一个
+指向某条消息的链接一年后还有效。一份代码，**两种产品形态**：在自己电脑上跑，或者作为
+团队 web 服务跑。
 
 ### 我为什么做这个
 
-经常要翻老的 Slack thread —— 给新人补背景、写周报、找三个月前某个决策的原话。Slack
+经常要翻老的 Slack thread——给新人补背景、写周报、找三个月前某个决策的原话。Slack
 自家搜索免费版限制 1 万条，付费版也没法把一个 thread `grep` 出来或者喂给 AI。
 
-现有工具都半截：[slackdump](https://github.com/rusq/slackdump) 把最难的部分（认证、限流、
-增量 resume）做完了，但输出是 SQLite + 按日期分的 JSON，不是「一个 thread 一份文件」。
-[slack-export-viewer](https://github.com/hfaran/slack-export-viewer) 是个 Flask
-server，没有鉴权，也没有稳定的单条消息锚点。
+slack-log **站在 [slackdump](https://github.com/rusq/slackdump) 上面**。slackdump 把最难
+的部分做完了（认证、限流、增量 resume），slack-log 补上它不做的：一个 thread 一份
+JSONL 的数据层、带稳定单条消息锚点的 web 服务、全文检索、接近 Slack 原生的渲染。
 
-所以 slack-log **站在 slackdump 上面**，只做 slackdump 不做的事：
+## 选择形态
 
-1. 把 SQLite 切成一个 thread 一份 JSONL，文件名直接用 `thread_ts`（Slack 的稳定唯一 id）。
-2. 动态提供页面——也能渲染静态 HTML——每条消息都有 `<a id="msg-{ts}">` 锚点，一个 URL
-   贴到任何文档里，一年后还是指向同一条消息。
-3. 全文检索（SQLite FTS5）、按人聚合的时间线、深浅色主题、中英文界面。
-4. 附件按 mime / 大小阈值差异化下载（图片下，大 zip 只存 metadata）。
-5. 把所有 uid / cid 解析成显示名，渲染 mrkdwn / 链接 unfurl 卡片 / reactions /
-   lightbox，效果接近 Slack 原生。
+slack-log 是一份代码、两种产品形态。按你的用法挑一个——区别只有一个
+`SLACK_LOG_PROFILE` 开关。
 
-### 你能得到什么
+|              | **个人版**                              | **团队版**                                |
+|--------------|----------------------------------------|------------------------------------------|
+| 运行环境     | 自己的电脑                              | 服务器                                    |
+| 核心产物     | `data/` JSONL 数据层                    | `search.db`（单个 SQLite 文件）           |
+| 用途         | `grep`、喂 AI、本地浏览                 | 团队共享、可搜索的 web 存档               |
+| web 服务     | 本地，无登录                            | FastAPI + OIDC SSO                        |
+| 刷新         | 手动（`make personal-build`）           | 内置定时任务 + `POST /sync`               |
+| 部署         | —                                       | Docker 镜像 + Kubernetes 部署文件         |
+| 指南         | [docs/personal.md](docs/personal.md)    | [docs/team.md](docs/team.md)              |
 
-- **一个真正的 web 服务**。FastAPI server 直接从 JSONL 数据层动态渲染每个页面——频道
-  列表、thread、按人聚合的时间线、附件——带 FTS5 全文检索。深浅色主题、中英文界面、
-  时间按访问者自己浏览器的时区显示。可选 OIDC SSO，能安全地部署在登录后面。
-- **……或者完全没有后端**。`make render-static` 出一份纯静态 HTML，`file://` 或任意
-  静态服务都能开——同样的页面，相对链接。
-- **一个 thread 一份纯 JSONL 文件**。`data/channels/<cid>/threads/<thread_ts>.jsonl`，
-  Slack API 字段全保留（blocks / reactions / files / edited / attachments），每行一条
-  完整消息。`grep` / `jq` / AI prompt 直接读。
-- **永久 ref id**。每条消息 `<a id="msg-{ts}">`，URL 形如
-  `…/threads/1779079280.797169#msg-1779154899.648009`，可以放心贴到任何文档当引用。
-- **站在 slackdump 肩膀上**。认证 / 限流 / 增量 resume / thread reply 晚到检测——都交给
-  slackdump，slack-log 只 subprocess 调它。
-- **自动刷新**。server 自己跑数据刷新——一个按可配间隔运行的后台定时任务，外加按需触发的
-  `POST /sync` API。
-- **容器就绪**。一个公开的多架构 Docker 镜像；附带 Kubernetes 部署文件。
+两种形态共用同一个采集层（slackdump）、同一套 FTS5 检索、同一套渲染——见
+[docs/architecture.md](docs/architecture.md)。
 
-> 个人项目，MIT 协议。在一个 Slack workspace 上测过。Public / private channel /
-> DM / MPIM 都能跑。
+## 个人版
 
-## 快速上手
-
-### 本地起 web 服务
+自己 Slack 的本地存档。splitter 写出一个**机器友好的 JSONL 数据层**——一个 thread 一份
+文件——`grep`、`jq`、AI prompt 直接读。本地 web 服务浏览它；静态 HTML 导出则完全不需要
+后端。
 
 ```sh
 brew install slackdump
@@ -61,141 +49,102 @@ pip install -e .
 # 最简方式见 https://github.com/rusq/slackdump/wiki/EZ-Login-3000
 slackdump workspace new
 
-make fetch && make split && make attach && make index
-make serve            # → http://127.0.0.1:8770
+make personal-build      # slackdump archive → split → attach → index
+make personal-serve      # → http://127.0.0.1:8770
 ```
 
-### ……或导出静态 HTML
+每个 thread 是 `data/channels/<cid>/threads/<thread_ts>.jsonl`——Slack 字段全保留
+（blocks / reactions / files / edited），每行一条完整消息。或者完全不用 server：
 
 ```sh
-make render-static    # → html-static/，file:// 或任意静态服务都能开
+make render-static       # → html-static/，file:// 或任意静态服务都能开
 ```
 
-### ……或跑容器
+完整说明——数据层、附件、编辑/删除兜底——见 [docs/personal.md](docs/personal.md)。
+
+## 团队版
+
+给团队的共享 web 存档。没有 JSONL 数据层：indexer 把 slackdump 的归档直接 ETL 进
+`search.db`，server 只读这一个文件。FastAPI、OIDC SSO、进程内刷新定时任务、容器镜像。
 
 ```sh
-docker run -p 8770:8770 -v "$PWD/data:/data" xieyanbo/slack-log:0.10.0
+docker run -p 8770:8770 \
+  -e SLACK_LOG_PROFILE=team \
+  -v "$PWD/data:/data" \
+  xieyanbo/slack-log:0.10.0
 ```
 
-### attach 的 Slack 凭据
+真正的部署，`deploy/k8s/` 放了脱敏的 Kubernetes 部署文件（Deployment + Service +
+Ingress + 一个共享 PVC），server 自己刷新自己——后台定时任务外加按需 `POST /sync`。
+设了 `OIDC_*` 环境变量，OIDC SSO 立即开启。
 
-`slackdump` 自己处理认证，但 `attach.py` 下载私有文件附件还需要你的 Slack 浏览器
-token（`xoxc-...`）和 cookie（`xoxd-...`）。解析顺序：
+完整部署指南——`search.db` schema、SSO、刷新、configmap——见 [docs/team.md](docs/team.md)。
 
-1. 环境变量 `SLACK_XOXC` + `SLACK_XOXD`
-2. 当前目录的 `./.env`（项目本地）
-3. `~/.config/slack-log/.env`（用户级，遵循 XDG）
+## 两种形态都给你的
 
-```sh
-# 用户级 .env（记得 chmod 600）
-mkdir -p ~/.config/slack-log
-cat > ~/.config/slack-log/.env <<EOF
-SLACK_XOXC=xoxc-your-token
-SLACK_XOXD=xoxd-your-cookie
-EOF
-chmod 600 ~/.config/slack-log/.env
-```
+- **永久 ref id**。每条消息渲染成 `<a id="msg-{ts}">`。URL 形如
+  `…/threads/1779079280.797169#msg-1779154899.648009`，可以放心贴到任何文档当引用。
+- **全文检索**。SQLite FTS5，CJK 按单字切分，两个字的中文词也能精准命中。还有按人聚合
+  的时间线。
+- **接近原生的渲染**。uid/cid 解析成显示名，mrkdwn、链接 unfurl 卡片、reactions、图片
+  lightbox——深浅色主题、中英文界面、时间按访问者自己的时区显示。
+- **站在 slackdump 肩膀上**。认证、限流、增量 resume、thread reply 晚到检测——全交给
+  slackdump，subprocess 调用（AGPLv3，不污染 slack-log 的 MIT 协议）。
 
-文件用 [python-dotenv](https://github.com/theskumar/python-dotenv) 解析标准 `.env` 格式。
-
-## 部署
-
-slack-log 以一个公开 Docker 镜像 + 一组 Kubernetes 部署文件的形式发布：
-
-- **镜像**——Docker Hub 上的 `xieyanbo/slack-log`，多架构（amd64/arm64）。每次正式
-  发布推一个固定 `X.Y.Z` 版本 tag；`:latest` 跟随最高版本号。部署仍固定到具体版本号。
-- **Kubernetes**——`deploy/k8s/` 放脱敏的 `*.example.yaml`：Deployment + Service +
-  Ingress + 一个共享 PVC。把 example 拷成去掉 `.example` 的同名文件，填进真实值再
-  apply——真实那份不进 git。
-- **刷新**——server 自己刷新数据：一个按 `SLACK_LOG_SYNC_INTERVAL` 间隔运行的后台
-  定时任务，外加按需触发的 `POST /sync` API（bearer token 鉴权）。一把进程内锁保证两者
-  不重叠——不需要单独的 CronJob。
-- **OIDC SSO**——设了 `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` /
-  `OIDC_DISCOVERY_URL` 三个环境变量，server 就要求登录；不设则开放运行，供本地开发。
-  `/healthz` 永远公开。
-- **CI/CD**——见 [docs/CICD.md](docs/CICD.md)。每次 push/PR 跑测试矩阵 + lint；
-  打 `vX.Y.Z` tag 自动构建并发布镜像。
-
-## 常用命令
-
-```sh
-make fetch               # 只跑 slackdump archive --resume（便宜，加性）
-make split               # SQLite → 每 thread 一份 JSONL + users/channels
-make attach              # 按 mime/size 策略差异化下载附件
-make index               # 构建 search.db（FTS5 全文索引）
-make serve               # 在 127.0.0.1:8770 起 web 服务
-make render-static       # 导出静态 HTML flavor
-make reconcile           # 重拉最近 90 天兜底编辑/删除（每周跑一次）
-make help                # 看全部 target
-```
+> 个人项目，MIT 协议。在一个 Slack workspace 上测过。Public / private channel /
+> DM / MPIM 都能跑。
 
 ## 架构
 
 ```
-┌──────────────────────────────────────────────────┐
-│  下游消费者：周报 / AI runbook / 历史检索         │
-└──────────────────────────────────────────────────┘
-                       ↑
-┌──────────────────────────────────────────────────┐
-│  服务层                                           │
-│  FastAPI server — 动态页面 + FTS5 检索            │
-│    + OIDC SSO + 深浅色 + 中英文                   │
-│  静态 HTML 导出（render.py，无后端）              │
-└──────────────────────────────────────────────────┘
-                       ↑
-┌──────────────────────────────────────────────────┐
-│  数据层(双格式并存)                                │
-│  thread JSONL  ← AI / grep / server              │
-│  channel index.jsonl + users.json + channels.json│
-│  search.db (FTS5)                                │
-│  slackdump.sqlite ← SQL / 归档底本                │
-│  attachments/(按阈值差异化下载)                    │
-└──────────────────────────────────────────────────┘
-                       ↑
-┌──────────────────────────────────────────────────┐
-│  采集层(slackdump subprocess)                     │
-│  archive + Lookback resume + 限流 + 认证          │
-└──────────────────────────────────────────────────┘
+        slackdump archive  ─────────────►  raw/slackdump.sqlite
+                                                   │
+              ┌────────────────────────────────────┴───────────────┐
+            个人版                                                 团队版
+              │                                                     │
+        splitter → data/ jsonl                          indexer ETL ─┘
+              │            │                                     │
+        attach (附件)    indexer                                  ▼
+              │            │                                  search.db
+              ▼            ▼                          (messages + message_raw
+        data/ + search.db                              + threads + channels
+              │                                              + users)
+              ▼                                                  │
+        JsonlStore ─────────►  ArchiveStore  ◄───────── SqliteStore
+                                     │
+                                FastAPI server
 ```
 
-采集层完全外包给 slackdump（AGPLv3 binary，subprocess 调用——不污染 slack-log 的
-MIT 协议）。
+server 只依赖 `ArchiveStore`；`JsonlStore` 和 `SqliteStore` 是两个后端。设计细节——store
+抽象、`core/` 共享层、扩展后的 `search.db` schema——见
+[docs/architecture.md](docs/architecture.md)。
 
 ## 文件清单
 
 | 路径 | 说明 |
 |---|---|
-| `slack_log/splitter.py` | `slackdump.sqlite` → 每 thread 一份 JSONL + `users.json` + `channels.json` |
-| `slack_log/attach.py` | 扫 JSONL 的 files 字段，按 mime/size 策略差异化下载，每个文件都生成 `.meta.json` |
-| `slack_log/indexer.py` | 构建 `search.db`——JSONL 之上的 SQLite FTS5 全文索引 |
-| `slack_log/render.py` | 共享渲染函数；也是静态 HTML 导出器 |
-| `slack_log/server.py` | FastAPI app——动态页面、检索、按人时间线、附件服务 |
+| `slack_log/core/` | 共享层——`slackdump_db`（读归档 SQLite）+ `text`（Slack 文本处理）|
+| `slack_log/store/` | `ArchiveStore` 抽象 + `JsonlStore`（个人）/ `SqliteStore`（团队）|
+| `slack_log/config.py` | `Profile` 枚举 + `Config.from_env` |
+| `slack_log/splitter.py` | `slackdump.sqlite` → 每 thread 一份 JSONL（个人版）|
+| `slack_log/indexer.py` | 构建 `search.db`——FTS5 索引，外加团队版 ETL |
+| `slack_log/attach.py` | 按 mime/size 策略差异化下载附件 |
+| `slack_log/render.py` | 共享渲染函数 + 静态 HTML 导出器 |
+| `slack_log/server.py` | FastAPI app——只依赖 `ArchiveStore` |
 | `slack_log/auth.py` | 可选 OIDC SSO 中间件 + 访问日志 |
-| `slack_log/templates/` | `server/`（动态、绝对 URL）+ `static/`（相对 `.html`）两套 flavor |
-| `deploy/k8s/` | 脱敏的 Kubernetes 部署文件（`*.example.yaml`） |
-| `docs/CICD.md` | CI/CD 设计 + 运维参考文档 |
-| `Makefile` | 构建 / 服务 target |
-
-## 设计原则
-
-- **默认动态**。server 直接从 JSONL 数据层渲染页面——没有预生成的 HTML 树，所以改模板
-  立即生效，refresh 流水线也不需要 render 步骤。
-- **附件跨 rebuild 保留**。`data/` 是宝贵的（重下载很慢），只有 `make clean-all` 才会删它。
-- **稳定文件名**。Thread 文件用 `thread_ts`（Slack 唯一 id）命名——不是日期不是 preview，
-  URL 永不变。
-- **`.meta.json` 永远生成**。大 zip 和视频只存 metadata，原 Slack URL 保留，未来想下能下。
-- **编辑/删除靠重拉兜底，不靠 event**。Slack 不通过 REST archive 路径推送
-  `message_changed` / `message_deleted`。`make reconcile` 重拉最近 90 天，splitter 按
-  `MAX(LOAD_DTTM)` dedup，最新版本胜出。每周跑一次。
+| `deploy/k8s/` | 脱敏的 Kubernetes 部署文件（`*.example.yaml`）|
+| `docs/` | `personal.md` · `team.md` · `architecture.md` · `CICD.md` |
 
 ## 路线图
 
 - [x] v0.1–v0.6 —— splitter、全 workspace archive、带 ref id 的静态 HTML、精细化渲染、
   编辑/删除兜底、错误恢复 + 测试
-- [x] v0.7 —— web 服务：HTTP 浏览 + FTS5 全文检索 + 按人时间线 + 深浅色 + 中英文 i18n
+- [x] v0.7 —— web 服务：HTTP 浏览 + FTS5 全文检索 + 按人时间线
 - [x] v0.8 —— OIDC SSO、Docker 镜像、Kubernetes 部署文件
-- [x] v0.9 —— 全动态渲染、时间按浏览器时区显示、访问日志、GitHub Actions CI/CD
-- [x] v0.10 —— 服务内刷新（后台定时任务 + `POST /sync`）、splitter 重写（每 thread N+1 → 三遍线性扫）、同步日志实时流式输出
+- [x] v0.9 —— 全动态渲染、时间按浏览器时区显示、CI/CD
+- [x] v0.10 —— 服务内刷新、splitter 重写（N+1 → 三遍线性扫）
+- [x] v0.11 —— 个人版 / 团队版形态二分：`ArchiveStore` 抽象、两个后端、一个
+  `SLACK_LOG_PROFILE` 开关
 
 ## 致谢
 
