@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from slack_log import indexer, server
+from slack_log.store import JsonlStore
 
 
 @pytest.fixture
@@ -44,7 +45,7 @@ def app_and_db(tmp_path: Path):
     (html / "channels" / "C001" / "threads").mkdir(parents=True)
     (html / "index.html").write_text("<html>index</html>")
 
-    app = server.create_app(db_path=db, html_root=html, data_root=data)
+    app = server.create_app(JsonlStore(data_root=data, db_path=db))
     return TestClient(app), db, html
 
 
@@ -222,7 +223,7 @@ def app_for_timeline(tmp_path: Path):
     indexer.build_index(data, db)
     html = tmp_path / "html"
     html.mkdir()
-    return TestClient(server.create_app(db_path=db, html_root=html, data_root=data))
+    return TestClient(server.create_app(JsonlStore(data_root=data, db_path=db)))
 
 
 def test_api_user_timeline_segments(app_for_timeline):
@@ -334,7 +335,7 @@ def app_channel_only(tmp_path: Path):
     indexer.build_index(data, db)  # full index — server filters at query time
     html = tmp_path / "html"
     html.mkdir()
-    app = server.create_app(db_path=db, html_root=html, data_root=data, include={"channel"})
+    app = server.create_app(JsonlStore(data_root=data, db_path=db), include={"channel"})
     return TestClient(app)
 
 

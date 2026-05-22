@@ -92,7 +92,7 @@ def test_render_files_image_when_local_exists(tmp_path: Path):
     (att / "F1.png").write_bytes(b"fake")
     files = [{"id": "F1", "name": "a.png", "mimetype": "image/png",
               "size": 12345, "filetype": "png", "permalink": "https://x"}]
-    out = render.render_files(files, tmp_path)
+    out = render.render_files(files, att)
     assert len(out) == 1
     assert out[0]["kind"] == "image"
     assert out[0]["rel"] == "../attachments/F1.png"
@@ -100,10 +100,11 @@ def test_render_files_image_when_local_exists(tmp_path: Path):
 
 
 def test_render_files_remote_when_local_missing(tmp_path: Path):
-    (tmp_path / "attachments").mkdir()
+    att = tmp_path / "attachments"
+    att.mkdir()
     files = [{"id": "F2", "name": "big.zip", "mimetype": "application/zip",
               "size": 99999, "filetype": "zip", "permalink": "https://slack/F2"}]
-    out = render.render_files(files, tmp_path)
+    out = render.render_files(files, att)
     assert out[0]["kind"] == "remote"
     assert out[0]["href"] == "https://slack/F2"
 
@@ -114,13 +115,14 @@ def test_render_files_link_for_non_image(tmp_path: Path):
     (att / "F3.pdf").write_bytes(b"%PDF")
     files = [{"id": "F3", "name": "a.pdf", "mimetype": "application/pdf",
               "size": 100, "filetype": "pdf"}]
-    out = render.render_files(files, tmp_path)
+    out = render.render_files(files, att)
     assert out[0]["kind"] == "link"
 
 
 def test_render_files_skip_missing_id(tmp_path: Path):
-    (tmp_path / "attachments").mkdir()
-    out = render.render_files([{"name": "noid"}], tmp_path)
+    att = tmp_path / "attachments"
+    att.mkdir()
+    out = render.render_files([{"name": "noid"}], att)
     assert out == []
 
 

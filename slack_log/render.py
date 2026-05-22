@@ -112,14 +112,13 @@ def render_attachments(attachments: list, users: dict, channels: dict) -> list:
     return out
 
 
-def render_files(files: list, channel_dir: Path) -> list:
+def render_files(files: list, att_dir: Path) -> list:
     """每个文件返回 dict: kind=image|link|remote。
 
-    本地已下载文件（attach.py 输出 data/channels/<cid>/attachments/<id>.<ext>）
-    优先用相对路径引用（HTML 也在 channels/<cid> 下，符号链接到 attachments）。
-    未下载就指向 Slack permalink（点击跳 Slack 拿）。
+    att_dir 是该 channel 的 attachments 目录（attach.py 的下载产物）。
+    本地已下载就用相对路径 ../attachments/<id>.<ext> 引用（HTML 在 channels/<cid>
+    下，符号链接到 attachments）；未下载就指向 Slack permalink（点击跳 Slack 拿）。
     """
-    att_dir = channel_dir / "attachments"
     out = []
     for f in files:
         fid = f.get("id")
@@ -150,9 +149,10 @@ def render_files(files: list, channel_dir: Path) -> list:
     return out
 
 
-def enrich_messages(msgs: list[dict], users: dict, channels: dict, channel_dir: Path) -> list[dict]:
+def enrich_messages(msgs: list[dict], users: dict, channels: dict, att_dir: Path) -> list[dict]:
     """Attach the _-prefixed render fields each message needs for thread.html.
-    Shared by static render (render.py) and dynamic render (server.py)."""
+    Shared by static render (render.py) and dynamic render (server.py).
+    att_dir is the channel's attachments directory (see render_files)."""
     for m in msgs:
         m["_ref_id"] = f"msg-{m['ts']}"
         m["_human_time"] = ts_to_human(m["ts"])
@@ -177,7 +177,7 @@ def enrich_messages(msgs: list[dict], users: dict, channels: dict, channel_dir: 
             }
             for r in (m.get("reactions") or [])
         ]
-        m["_files_rendered"] = render_files(m.get("files") or [], channel_dir)
+        m["_files_rendered"] = render_files(m.get("files") or [], att_dir)
         m["_attachments_rendered"] = render_attachments(m.get("attachments") or [], users, channels)
     return msgs
 
@@ -267,7 +267,7 @@ def render_channel_html(channel_dir: Path, html_root: Path, users: dict, channel
         if not ttp.exists():
             continue
         try:
-            msgs = enrich_messages(load_thread(ttp), users, channels, channel_dir)
+            msgs = enrich_messages(load_thread(ttp), users, channels, channel_dir / "attachments")
         except Exception as e:
             print(f"⚠️  {cid}/{tm['thread_ts']}: load failed ({type(e).__name__}: {e}) — skip", file=sys.stderr)
             continue

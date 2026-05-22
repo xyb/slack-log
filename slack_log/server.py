@@ -1,35 +1,39 @@
 #!/usr/bin/env python3
 """
-v0.7 web service: full-text search on top of the static HTML viewer.
+Web service for a Slack archive — dynamic pages + full-text search.
 
-  /                   → static html/ tree (existing channel + thread pages)
-  /search?q=...       → HTML search page rendering hits with click-through links
-  /api/search?q=...   → JSON hits — same data, machine-readable
-  /healthz            → liveness
+  /                            → home: channel / DM / MPIM lists
+  /channels/{cid}              → channel index (thread list)
+  /channels/{cid}/threads/{ts} → one thread, IRC-log style
+  /channels/{cid}/attachments/{fname} → a downloaded attachment
+  /search?q=... · /api/search  → FTS5 search (HTML page + JSON)
+  /user/{uid} · /api/user/{uid}→ per-user message timeline
+  /sync (GET/POST)             → refresh status / trigger
+  /healthz                     → liveness
 
-The server is intentionally thin: indexer.search() does the FTS5 work; the
-server adds the URL-construction + HTML rendering, and re-uses _base.html
-so the search page inherits the existing CSS look.
+The server depends only on an `ArchiveStore` — it never touches a jsonl file or
+a SQLite table directly. JsonlStore backs the personal profile, SqliteStore the
+team profile; both serve every route here unchanged.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import os
 import secrets
-import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import StarletteHTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from slack_log import indexer
+from slack_log import render
+from slack_log.auth import auth_config_from_env, install_auth
+from slack_log.store import ArchiveStore, JsonlStore
 from slack_log.sync import SyncManager, scheduler_loop
 
 # Fixed UTC+8 offset for grouping user-timeline messages onto a consistent
@@ -64,31 +68,24 @@ def _human_time(ts: str) -> str:
 
 
 def create_app(
-    db_path: Path,
-    html_root: Path,
-    data_root: Path | None = None,
+    store: ArchiveStore,
+    *,
     templates_root: Path | None = None,
     include: set[str] | None = None,
     sync_token: str | None = None,
     sync_interval: float = 0,
     sync_script: Path | None = None,
 ) -> FastAPI:
-    """Build a FastAPI app bound to a search.db + html/ tree.
-
-    data_root is needed for the /user/{uid} page (looks up avatar + display
-    name from users.json). If absent, /user endpoints 404.
+    """Build a FastAPI app bound to an ArchiveStore.
 
     include: subset of {channel, dm, mpim}. None = all. Applied at query time
-    so the same search.db can serve different views without rebuilding.
+    so one store can serve different views without rebuilding anything.
     """
-    db_path = Path(db_path)
-    html_root = Path(html_root)
-    data_root = Path(data_root) if data_root else None
     include = set(include) if include else None
     if templates_root is None:
         templates_root = Path(__file__).parent / "templates"
-    # Two flavors live side-by-side: static/ (relative .html for `python -m http.server`)
-    # and server/ (no-suffix absolute URLs for this FastAPI server). Pick server/.
+    # Two flavors live side-by-side: static/ (relative .html for `python -m
+    # http.server`) and server/ (no-suffix absolute URLs for this server).
     if (templates_root / "server").is_dir():
         templates_root = templates_root / "server"
     env = Environment(
@@ -96,33 +93,12 @@ def create_app(
         autoescape=select_autoescape(["html"]),
     )
 
-    users: dict = {}
-    if data_root and (data_root / "users.json").exists():
-        users = json.loads((data_root / "users.json").read_text())
-
-    def _fetched_at() -> str:
-        """slackdump's last archive time, as a unix epoch string. The browser
-        renders it in the visitor's local timezone (see the localtime JS)."""
-        for cand in (
-            Path("raw/slackdump.sqlite"),
-            (data_root or Path("data")) / "users.json",
-        ):
-            try:
-                if cand.exists():
-                    return str(cand.stat().st_mtime)
-            except OSError:
-                pass
-        return ""
-
     def _now() -> str:
         """Current time as a unix epoch string — browser renders it local."""
         return str(datetime.now().timestamp())
 
-    def _kind_clause() -> tuple[str, list]:
-        if not include:
-            return "", []
-        placeholders = ",".join("?" * len(include))
-        return f" AND kind IN ({placeholders})", sorted(include)
+    def _channel_name(cid: str) -> str:
+        return (store.channels().get(cid) or {}).get("name") or cid
 
     # Sync manager — serialises the refresh pipeline; the background
     # scheduler and POST /sync both go through it (see sync.py).
@@ -141,19 +117,18 @@ def create_app(
             if scheduler:
                 scheduler.cancel()
 
-    app = FastAPI(title="slack-log search", version="0.7.0", lifespan=_lifespan)
+    app = FastAPI(title="slack-log", version="0.10.0", lifespan=_lifespan)
 
     @app.exception_handler(StarletteHTTPException)
     async def _not_found(request: Request, exc: StarletteHTTPException):
         if exc.status_code != 404:
             return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
-        # Static-file 404s also flow through this handler — render the friendly page.
         # JSON path stays for /api/* so machine callers still get structured errors.
         if request.url.path.startswith("/api/"):
             return JSONResponse({"detail": exc.detail}, status_code=404)
         body = env.get_template("not_found.html").render(
             detail=exc.detail,
-            fetched_at=_fetched_at(), generated_at=_now(),
+            fetched_at=store.fetched_at(), generated_at=_now(),
         )
         return HTMLResponse(body, status_code=404)
 
@@ -188,8 +163,7 @@ def create_app(
         q = q.strip()
         if not q:
             return JSONResponse({"query": "", "total": 0, "hits": []})
-        with sqlite3.connect(db_path) as conn:
-            hits = [_enrich(h) for h in indexer.search(conn, q, limit=limit, include=include)]
+        hits = [_enrich(h) for h in store.search(q, limit=limit, include=include)]
         return JSONResponse({"query": q, "total": len(hits), "hits": hits})
 
     @app.get("/search", response_class=HTMLResponse)
@@ -197,28 +171,17 @@ def create_app(
         q = q.strip()
         hits: list[dict] = []
         if q:
-            with sqlite3.connect(db_path) as conn:
-                hits = [_enrich(h) for h in indexer.search(conn, q, limit=limit, include=include)]
+            hits = [_enrich(h) for h in store.search(q, limit=limit, include=include)]
         tmpl = env.get_template("search.html")
         return HTMLResponse(tmpl.render(
             query=q, hits=hits, total=len(hits),
-            fetched_at=_fetched_at(), generated_at=_now(),
+            fetched_at=store.fetched_at(), generated_at=_now(),
         ))
 
     def _user_messages(uid: str, limit: int) -> list[dict]:
-        """All messages by uid, newest first, with deep-link url."""
-        kind_clause, kind_params = _kind_clause()
-        with sqlite3.connect(db_path) as conn:
-            cur = conn.execute(
-                f"SELECT ts, thread_ts, channel_id, channel_name, user_name, text "
-                f"FROM messages WHERE user_id = ?{kind_clause} "
-                f"ORDER BY ts DESC LIMIT ?",
-                (uid, *kind_params, limit),
-            )
-            cols = [d[0] for d in cur.description]
-            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+        """All messages by uid, newest first, with deep-link url + human time."""
+        rows = store.user_messages(uid, limit=limit, include=include)
         for r in rows:
-            r["text"] = indexer.join_cjk(r["text"])
             r["url"] = _hit_url(r)
             r["human_time"] = _human_time(r["ts"])
             r["time_short"] = r["human_time"][11:]  # HH:MM:SS
@@ -273,7 +236,7 @@ def create_app(
 
     @app.get("/api/user/{uid}")
     def api_user(uid: str, limit: int = Query(default=500, ge=1, le=5000)):
-        u = users.get(uid)
+        u = store.users().get(uid)
         if not u:
             raise HTTPException(status_code=404, detail=f"unknown user {uid}")
         messages = _user_messages(uid, limit)
@@ -293,7 +256,7 @@ def create_app(
         view: str = Query(default="timeline", pattern="^(timeline|by_channel)$"),
         limit: int = Query(default=500, ge=1, le=5000),
     ):
-        u = users.get(uid)
+        u = store.users().get(uid)
         if not u:
             raise HTTPException(status_code=404, detail=f"unknown user {uid}")
         messages = _user_messages(uid, limit)
@@ -307,67 +270,52 @@ def create_app(
             segments=_timeline_segments(messages),
             by_channel_segments=_by_channel_segments(messages),
             view=view,
-            fetched_at=_fetched_at(), generated_at=_now(),
+            fetched_at=store.fetched_at(), generated_at=_now(),
         ))
-
-    # Pages are rendered dynamically from the jsonl data layer — no pre-built
-    # html/ tree. Template edits take effect immediately; the refresh pipeline
-    # only needs archive → split → attach → index, no render step.
-    from fastapi.responses import FileResponse
-    from slack_log import render as R
-
-    channels_meta: dict = {}
-    if data_root and (data_root / "channels.json").exists():
-        channels_meta = json.loads((data_root / "channels.json").read_text())
-
-    def _channel_name(cid: str) -> str:
-        return (channels_meta.get(cid) or {}).get("name") or cid
 
     @app.get("/", response_class=HTMLResponse)
     def home():
-        groups = R.build_global_groups(data_root or Path("data"), channels_meta, users, include=include)
+        groups = store.global_groups(include=include)
         tmpl = env.get_template("global_index.html")
         return HTMLResponse(tmpl.render(
-            **groups, fetched_at=_fetched_at(), generated_at=_now()))
+            **groups, fetched_at=store.fetched_at(), generated_at=_now()))
 
     @app.get("/channels/{cid}", response_class=HTMLResponse)
     def channel_index(cid: str):
-        cdir = (data_root or Path("data")) / "channels" / cid
-        if not cdir.is_dir():
+        if cid not in store.list_channels():
             raise HTTPException(status_code=404, detail=f"channel {cid} not found")
-        threads_meta = R.enrich_thread_meta(R.load_thread_meta(cdir), users, channels_meta)
+        threads_meta = render.enrich_thread_meta(
+            store.thread_meta(cid), store.users(), store.channels())
         tmpl = env.get_template("channel_index.html")
         return HTMLResponse(tmpl.render(
             channel_id=cid, channel_name=_channel_name(cid), threads=threads_meta,
-            fetched_at=_fetched_at(), generated_at=_now()))
+            fetched_at=store.fetched_at(), generated_at=_now()))
 
     @app.get("/channels/{cid}/threads/{ts}", response_class=HTMLResponse)
     def thread_page(cid: str, ts: str):
-        cdir = (data_root or Path("data")) / "channels" / cid
-        ttp = cdir / "threads" / f"{ts}.jsonl"
-        if not ttp.exists():
+        raw = store.load_thread(cid, ts)
+        if raw is None:
             raise HTTPException(status_code=404, detail=f"thread {ts} not found")
-        msgs = R.enrich_messages(R.load_thread(ttp), users, channels_meta, cdir)
-        tm = next((t for t in R.load_thread_meta(cdir) if t.get("thread_ts") == ts), None)
+        msgs = render.enrich_messages(
+            raw, store.users(), store.channels(), store.attachments_dir(cid))
+        tm = next((t for t in store.thread_meta(cid) if t.get("thread_ts") == ts), None)
         if tm is None:
             tm = {"thread_ts": ts, "is_thread": len(msgs) > 1,
                   "reply_count": max(0, len(msgs) - 1)}
         tmpl = env.get_template("thread.html")
         return HTMLResponse(tmpl.render(
             channel_id=cid, channel_name=_channel_name(cid), thread_meta=tm,
-            messages=msgs, fetched_at=_fetched_at(), generated_at=_now()))
+            messages=msgs, fetched_at=store.fetched_at(), generated_at=_now()))
 
     @app.get("/channels/{cid}/attachments/{fname}")
     def attachment(cid: str, fname: str):
-        p = (data_root or Path("data")) / "channels" / cid / "attachments" / fname
+        p = store.attachments_dir(cid) / fname
         if not p.is_file():
             raise HTTPException(status_code=404)
         return FileResponse(p)
 
     # Optional OIDC auth — activates only when OIDC_* env vars are present
     # (production). Dev and pytest run unauthenticated.
-    from slack_log.auth import auth_config_from_env, install_auth
-
     cfg = auth_config_from_env()
     if cfg:
         install_auth(app, **cfg)
@@ -379,14 +327,16 @@ def create_app_from_env() -> FastAPI:
     """uvicorn --factory entrypoint for the container.
 
     Reads paths from env; in EKS a single PVC is mounted and SLACK_LOG_ROOT
-    points at it, so search.db / html/ / data/ all live on the shared volume.
+    points at it, so search.db / data/ live on the shared volume.
     """
     root = Path(os.environ.get("SLACK_LOG_ROOT", "."))
     inc = {p.strip() for p in os.environ.get("SLACK_LOG_INCLUDE", "").split(",") if p.strip()}
-    return create_app(
-        db_path=Path(os.environ.get("SLACK_LOG_DB", root / "search.db")),
-        html_root=Path(os.environ.get("SLACK_LOG_HTML", root / "html")),
+    store = JsonlStore(
         data_root=Path(os.environ.get("SLACK_LOG_DATA", root / "data")),
+        db_path=Path(os.environ.get("SLACK_LOG_DB", root / "search.db")),
+    )
+    return create_app(
+        store,
         include=inc or None,
         sync_token=os.environ.get("SLACK_LOG_SYNC_TOKEN") or None,
         sync_interval=float(os.environ.get("SLACK_LOG_SYNC_INTERVAL", "0") or "0"),
@@ -394,11 +344,12 @@ def create_app_from_env() -> FastAPI:
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Run the slack-log search web service")
+    ap = argparse.ArgumentParser(description="Run the slack-log web service")
     ap.add_argument("--db", type=Path, default=Path("./search.db"))
-    ap.add_argument("--html", type=Path, default=Path("./html"))
     ap.add_argument("--data", type=Path, default=Path("./data"),
-                    help="data/ root — needed for /user/<uid> avatar + name lookup")
+                    help="data/ root — the jsonl archive the personal profile reads")
+    ap.add_argument("--html", type=Path, default=Path("./html"),
+                    help="(unused — kept for compatibility, removed in the Makefile reorg)")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8770)
     ap.add_argument("--include", default="",
@@ -407,7 +358,8 @@ def main():
 
     include = {p.strip() for p in args.include.split(",") if p.strip()} or None
     import uvicorn
-    app = create_app(db_path=args.db, html_root=args.html, data_root=args.data, include=include)
+    store = JsonlStore(data_root=args.data, db_path=args.db)
+    app = create_app(store, include=include)
     uvicorn.run(app, host=args.host, port=args.port)
 
 

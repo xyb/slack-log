@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from slack_log import auth, indexer, server
+from slack_log.store import JsonlStore
 
 
 def test_auth_config_from_env_off_when_unset(monkeypatch):
@@ -96,11 +97,7 @@ def test_auth_routes_not_shadowed_by_static_mount(tmp_path, monkeypatch):
     (data / "channels.json").write_text("{}")
     db = tmp_path / "search.db"
     indexer.build_index(data, db)
-    html = tmp_path / "html"
-    html.mkdir()
-    (html / "index.html").write_text("<html>index</html>")
-
-    app = server.create_app(db_path=db, html_root=html, data_root=data)
+    app = server.create_app(JsonlStore(data_root=data, db_path=db))
     client = TestClient(app, raise_server_exceptions=False)
     # /auth/login must reach the auth handler. If StaticFiles shadowed it the
     # response is 404; reaching the handler yields 302 (or 500 when the fake
@@ -166,9 +163,7 @@ def test_server_create_app_no_auth_without_env(tmp_path, monkeypatch):
     (data / "channels.json").write_text("{}")
     db = tmp_path / "search.db"
     indexer.build_index(data, db)
-    html = tmp_path / "html"
-    html.mkdir()
-    app = server.create_app(db_path=db, html_root=html, data_root=data)
+    app = server.create_app(JsonlStore(data_root=data, db_path=db))
     client = TestClient(app)
     # No auth → /search reachable directly, no redirect to login.
     r = client.get("/search", follow_redirects=False)
