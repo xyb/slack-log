@@ -49,6 +49,18 @@ If you do want the jsonl layer too (for `grep` access on the server), set
 `SLACK_LOG_EMIT_JSONL=1` — the refresh then also runs split + attach. Off by
 default.
 
+### First deploy / upgrade — rebuild search.db first
+
+The team server reads the extended `search.db` schema (`channels` / `threads` /
+`message_raw` / `users`). A `search.db` that is missing or was built by an
+older version (FTS-only) makes content pages return 500 — `/healthz` still
+passes, so the pod stays up, but pages fail until a refresh rebuilds it.
+
+So on a first deploy or a version upgrade, **rebuild search.db before relying
+on the service**: trigger `POST /sync` right after the rollout (or run
+`indexer --profile team` against the volume first). The background scheduler
+would also fix it within `SLACK_LOG_SYNC_INTERVAL`, but that can be an hour.
+
 ## Self-refresh
 
 The server refreshes its own data — no external CronJob:

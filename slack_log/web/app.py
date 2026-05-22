@@ -30,6 +30,7 @@ from fastapi.exceptions import StarletteHTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from slack_log import __version__
 from slack_log.config import Config
 from slack_log.store import ArchiveStore, JsonlStore, SqliteStore
 from slack_log.web import presenter
@@ -117,7 +118,7 @@ def create_app(
             if scheduler:
                 scheduler.cancel()
 
-    app = FastAPI(title="slack-log", version="0.10.0", lifespan=_lifespan)
+    app = FastAPI(title="slack-log", version=__version__, lifespan=_lifespan)
 
     @app.exception_handler(StarletteHTTPException)
     async def _not_found(request: Request, exc: StarletteHTTPException):

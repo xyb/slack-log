@@ -79,10 +79,21 @@ class ArchiveStore(ABC):
 
     # --- search index — shared, profile-independent ---
 
+    def _open_search_db(self):
+        """A closing() context manager over search.db.
+
+        search_db can be None — the static-HTML exporter builds a JsonlStore
+        only to read pages. Fail with a clear message instead of a raw
+        sqlite3 TypeError if search is attempted on such a store.
+        """
+        if self.search_db is None:
+            raise RuntimeError("this store has no search index (db_path was not provided)")
+        return closing(sqlite3.connect(self.search_db))
+
     def search(self, q: str, limit: int = 50,
                include: set[str] | None = None) -> list[dict]:
         """FTS5 full-text search over search.db."""
-        with closing(sqlite3.connect(self.search_db)) as conn:
+        with self._open_search_db() as conn:
             return index.search(conn, q, limit=limit, include=include)
 
     def user_messages(self, uid: str, limit: int = 500,
@@ -97,7 +108,7 @@ class ArchiveStore(ABC):
             ph = ",".join("?" * len(include))
             kind_clause = f" AND kind IN ({ph})"
             kind_params = sorted(include)
-        with closing(sqlite3.connect(self.search_db)) as conn:
+        with self._open_search_db() as conn:
             cur = conn.execute(
                 f"SELECT ts, thread_ts, channel_id, channel_name, user_name, text "
                 f"FROM messages WHERE user_id = ?{kind_clause} "
