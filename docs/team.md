@@ -12,7 +12,7 @@ Set `SLACK_LOG_PROFILE=team` and the whole pipeline switches over.
 docker run -p 8770:8770 \
   -e SLACK_LOG_PROFILE=team \
   -v "$PWD/data:/data" \
-  xieyanbo/slack-log:0.10.0
+  xieyanbo/slack-log:0.11.0
 ```
 
 The image is on Docker Hub as `xieyanbo/slack-log`, multi-arch (amd64/arm64).

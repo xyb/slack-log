@@ -80,7 +80,7 @@ OIDC SSO, an in-process refresh scheduler, and a container image.
 docker run -p 8770:8770 \
   -e SLACK_LOG_PROFILE=team \
   -v "$PWD/data:/data" \
-  xieyanbo/slack-log:0.10.0
+  xieyanbo/slack-log:0.11.0
 ```
 
 For a real deployment, `deploy/k8s/` holds sanitized Kubernetes manifests
@@ -154,8 +154,10 @@ layer, the extended `search.db` schema — in
 - [x] v0.8 — OIDC SSO, Docker image, Kubernetes manifests
 - [x] v0.9 — fully dynamic rendering, browser-local timestamps, CI/CD
 - [x] v0.10 — in-process refresh, splitter rewrite (N+1 → three linear passes)
-- [x] v0.11 — personal / team profile split: the `ArchiveStore` abstraction,
-  two backends, one `SLACK_LOG_PROFILE` switch
+- [x] v0.11 — personal / team profile split (the `ArchiveStore` abstraction,
+  two backends, one `SLACK_LOG_PROFILE` switch); team-profile attachment
+  download with a configurable size cap; incremental refresh (`slackdump
+  resume`)
 
 ## Acknowledgements
 

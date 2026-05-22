@@ -71,7 +71,7 @@ make render-static       # → html-static/，file:// 或任意静态服务都�
 docker run -p 8770:8770 \
   -e SLACK_LOG_PROFILE=team \
   -v "$PWD/data:/data" \
-  xieyanbo/slack-log:0.10.0
+  xieyanbo/slack-log:0.11.0
 ```
 
 真正的部署，`deploy/k8s/` 放了脱敏的 Kubernetes 部署文件（Deployment + Service +
@@ -139,8 +139,9 @@ server 只依赖 `ArchiveStore`；`JsonlStore` 和 `SqliteStore` 是两个后端
 - [x] v0.8 —— OIDC SSO、Docker 镜像、Kubernetes 部署文件
 - [x] v0.9 —— 全动态渲染、时间按浏览器时区显示、CI/CD
 - [x] v0.10 —— 服务内刷新、splitter 重写（N+1 → 三遍线性扫）
-- [x] v0.11 —— 个人版 / 团队版形态二分：`ArchiveStore` 抽象、两个后端、一个
-  `SLACK_LOG_PROFILE` 开关
+- [x] v0.11 —— 个人版 / 团队版形态二分（`ArchiveStore` 抽象、两个后端、一个
+  `SLACK_LOG_PROFILE` 开关）；团队版附件下载 + 可配置大小上限；增量刷新
+  （`slackdump resume`）
 
 ## 致谢
 
