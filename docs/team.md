@@ -73,6 +73,12 @@ The server refreshes its own data — no external CronJob:
 One in-process lock keeps the scheduler and the API from overlapping. The
 refresh script is `scripts/refresh.sh`; it branches on `SLACK_LOG_PROFILE`.
 
+The refresh is incremental: the first run does a full `slackdump archive`,
+every run after does `slackdump resume`, which fetches only what changed
+(with a one-week lookback for edits and late thread replies). The team
+ETL then rebuilds search.db from the archive, and `attach` downloads only
+files it doesn't already have.
+
 ## OIDC SSO
 
 The archive holds real names and internal discussion, so a public deployment

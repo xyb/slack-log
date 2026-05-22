@@ -44,11 +44,21 @@ printf 'SLACK_TOKEN=%s\nSLACK_COOKIE=%s\n' "$SLACK_XOXC" "$SLACK_XOXD" > "$CREDS
 slackdump workspace import -no-encryption "$CREDS"
 rm -f "$CREDS"
 
-echo "[refresh] $(date -u +%FT%TZ) slackdump archive..."
+# First run: a full `archive`. Every run after: `resume` — slackdump fetches
+# only what changed since the last run (its default 1-week lookback also
+# catches edits and late thread replies) and appends just that delta. Without
+# this every hourly run re-pulls the whole workspace and the sqlite grows by a
+# full copy each time.
 # -files=false: slackdump archives messages only. Attachment downloads are
 # handled by attach.py with its mime/size policy — letting slackdump pull
 # every file would balloon the PVC (it tried 1148 dirs and filled 3Gi).
-slackdump archive -no-encryption -files=false -o raw
+if [ -f raw/slackdump.sqlite ]; then
+  echo "[refresh] $(date -u +%FT%TZ) slackdump resume (incremental)..."
+  slackdump resume -no-encryption -files=false raw
+else
+  echo "[refresh] $(date -u +%FT%TZ) slackdump archive (first run, full)..."
+  slackdump archive -no-encryption -files=false -o raw
+fi
 
 # attach — best-effort (20min cap): search and text browsing work without it,
 # thread pages just show the image fallback. The file list comes from the jsonl

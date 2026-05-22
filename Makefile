@@ -62,9 +62,17 @@ team-serve:
 
 # --- building blocks ------------------------------------------------------
 
+# First run does a full archive; every run after resumes — slackdump fetches
+# only the delta since last time (1-week lookback for edits / late replies).
 fetch:
 	mkdir -p raw
-	cd raw && slackdump archive -o . --resume -files=false
+	@if [ -f raw/slackdump.sqlite ]; then \
+	    echo "→ slackdump resume (incremental)"; \
+	    cd raw && slackdump resume -files=false . ; \
+	else \
+	    echo "→ slackdump archive (first run, full)"; \
+	    cd raw && slackdump archive -o . -files=false ; \
+	fi
 
 # Weekly reconcile: pick up message edits and deletions. See docs/.
 RECONCILE_DAYS ?= 90
