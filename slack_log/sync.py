@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import deque
 from pathlib import Path
 
 
@@ -60,9 +61,18 @@ class SyncManager:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )
-            out, _ = await proc.communicate()
-            text = out.decode("utf-8", "replace") if out else ""
-            self.last_log_tail = "\n".join(text.splitlines()[-20:])
+            # Stream the refresh output line by line — print each to the
+            # server's own stdout so archive/split/attach/index progress is
+            # visible live in the pod logs, not only in last_log_tail after
+            # the whole run ends.
+            tail: deque[str] = deque(maxlen=40)
+            assert proc.stdout is not None
+            async for raw in proc.stdout:
+                line = raw.decode("utf-8", "replace").rstrip()
+                print(f"[sync] {line}", flush=True)
+                tail.append(line)
+            await proc.wait()
+            self.last_log_tail = "\n".join(list(tail)[-20:])
             self.last_result = "success" if proc.returncode == 0 else "failed"
         except Exception as e:  # noqa: BLE001 — record any failure, never crash the loop
             self.last_result = "failed"
