@@ -33,7 +33,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from slack_log import render
 from slack_log.auth import auth_config_from_env, install_auth
-from slack_log.store import ArchiveStore, JsonlStore
+from slack_log.store import ArchiveStore, JsonlStore, SqliteStore
 from slack_log.sync import SyncManager, scheduler_loop
 
 # Fixed UTC+8 offset for grouping user-timeline messages onto a consistent
@@ -328,13 +328,22 @@ def create_app_from_env() -> FastAPI:
 
     Reads paths from env; in EKS a single PVC is mounted and SLACK_LOG_ROOT
     points at it, so search.db / data/ live on the shared volume.
+
+    SLACK_LOG_PROFILE selects the store: "team" → SqliteStore (server reads
+    search.db only); anything else → JsonlStore (the personal jsonl layer).
     """
     root = Path(os.environ.get("SLACK_LOG_ROOT", "."))
     inc = {p.strip() for p in os.environ.get("SLACK_LOG_INCLUDE", "").split(",") if p.strip()}
-    store = JsonlStore(
-        data_root=Path(os.environ.get("SLACK_LOG_DATA", root / "data")),
-        db_path=Path(os.environ.get("SLACK_LOG_DB", root / "search.db")),
-    )
+    db_path = Path(os.environ.get("SLACK_LOG_DB", root / "search.db"))
+    profile = os.environ.get("SLACK_LOG_PROFILE", "personal")
+    store: ArchiveStore
+    if profile == "team":
+        store = SqliteStore(db_path=db_path)
+    else:
+        store = JsonlStore(
+            data_root=Path(os.environ.get("SLACK_LOG_DATA", root / "data")),
+            db_path=db_path,
+        )
     return create_app(
         store,
         include=inc or None,

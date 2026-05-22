@@ -210,27 +210,33 @@ def load_thread_meta(channel_dir: Path) -> list[dict]:
     return out
 
 
-def build_global_groups(data_root: Path, channels_meta: dict, users: dict,
-                        include: set | None = None) -> dict:
-    """Build the {channels, dms, mpims} groups for global_index.html."""
+def assemble_global_groups(entries: list[tuple], users: dict,
+                           include: set | None = None) -> dict:
+    """Pure: turn (cid, cinfo, thread_count) tuples into {channels, dms, mpims}.
+
+    Shared by JsonlStore and SqliteStore so the two profiles group the home
+    page identically. Sorts are fully deterministic (id tiebreaker) so the
+    result does not depend on the order entries arrive in.
+    """
     include = include or {"channel", "dm", "mpim"}
     real_channels, dms, mpims = [], [], []
-    for cdir in (data_root / "channels").iterdir():
-        if not cdir.is_dir():
-            continue
-        cid = cdir.name
-        kind = kind_of(cid, channels_meta)
+    for cid, cinfo, n_threads in entries:
+        cinfo = cinfo or {}
+        if cinfo.get("is_im"):
+            kind = "dm"
+        elif cinfo.get("is_mpim"):
+            kind = "mpim"
+        else:
+            kind = "channel"
         if kind not in include:
             continue
-        n_threads = len(list((cdir / "threads").glob("*.jsonl"))) if (cdir / "threads").exists() else 0
-        cinfo = channels_meta.get(cid) or {}
         item = {"id": cid, "name": cinfo.get("name") or cid, "thread_count": n_threads}
-        if cinfo.get("is_im"):
+        if kind == "dm":
             other_uid = cinfo.get("other_uid")
             other_user = users.get(other_uid) if other_uid else None
             item["avatar"] = (other_user or {}).get("image_72") if other_user else None
             dms.append(item)
-        elif cinfo.get("is_mpim"):
+        elif kind == "mpim":
             members = cinfo.get("members") or []
             item["avatars"] = [
                 (users.get(m) or {}).get("image_48")
@@ -240,10 +246,25 @@ def build_global_groups(data_root: Path, channels_meta: dict, users: dict,
             mpims.append(item)
         else:
             real_channels.append(item)
-    real_channels.sort(key=lambda c: c["name"])
-    dms.sort(key=lambda c: c["thread_count"], reverse=True)
-    mpims.sort(key=lambda c: c["thread_count"], reverse=True)
+    real_channels.sort(key=lambda c: (c["name"], c["id"]))
+    dms.sort(key=lambda c: (-c["thread_count"], c["id"]))
+    mpims.sort(key=lambda c: (-c["thread_count"], c["id"]))
     return {"channels": real_channels, "dms": dms, "mpims": mpims}
+
+
+def build_global_groups(data_root: Path, channels_meta: dict, users: dict,
+                        include: set | None = None) -> dict:
+    """Gather (cid, cinfo, thread_count) from the data/ jsonl layer, then group."""
+    entries: list[tuple] = []
+    croot = data_root / "channels"
+    if croot.exists():
+        for cdir in croot.iterdir():
+            if not cdir.is_dir():
+                continue
+            threads = cdir / "threads"
+            n_threads = len(list(threads.glob("*.jsonl"))) if threads.exists() else 0
+            entries.append((cdir.name, channels_meta.get(cdir.name), n_threads))
+    return assemble_global_groups(entries, users, include)
 
 
 def render_channel_html(channel_dir: Path, html_root: Path, users: dict, channels: dict, env: Environment, generated_at: str) -> None:

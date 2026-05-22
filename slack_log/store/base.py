@@ -15,6 +15,7 @@ to set self.search_db.
 
 import sqlite3
 from abc import ABC, abstractmethod
+from contextlib import closing
 from pathlib import Path
 
 from slack_log import indexer
@@ -81,7 +82,7 @@ class ArchiveStore(ABC):
     def search(self, q: str, limit: int = 50,
                include: set[str] | None = None) -> list[dict]:
         """FTS5 full-text search over search.db."""
-        with sqlite3.connect(self.search_db) as conn:
+        with closing(sqlite3.connect(self.search_db)) as conn:
             return indexer.search(conn, q, limit=limit, include=include)
 
     def user_messages(self, uid: str, limit: int = 500,
@@ -96,7 +97,7 @@ class ArchiveStore(ABC):
             ph = ",".join("?" * len(include))
             kind_clause = f" AND kind IN ({ph})"
             kind_params = sorted(include)
-        with sqlite3.connect(self.search_db) as conn:
+        with closing(sqlite3.connect(self.search_db)) as conn:
             cur = conn.execute(
                 f"SELECT ts, thread_ts, channel_id, channel_name, user_name, text "
                 f"FROM messages WHERE user_id = ?{kind_clause} "
