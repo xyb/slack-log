@@ -3,12 +3,11 @@
 Functions covered:
 - format_bytes, ts_to_human
 - render_user, render_channel, kind_of
-- apply_mrkdwn (bold/italic/code/strike/quote + word boundary)
-- expand_mentions (user/channel/link/broadcast/emoji + inside_anchor)
-- expand_for_preview (link <a> downgraded to <span>)
 - render_files (image / link / remote)
 - render_attachments (color hex normalization, field mapping)
-- emojize
+
+Slack text processing (emojize / apply_mrkdwn / expand_mentions) moved to
+core.text — see test_core_text.py.
 """
 
 from pathlib import Path
@@ -83,103 +82,6 @@ def test_kind_of():
     assert render.kind_of("D1", channels) == "dm"
     assert render.kind_of("G1", channels) == "mpim"
     assert render.kind_of("UNKNOWN", channels) == "channel"  # default
-
-
-# --- emojize ---
-
-def test_emojize_known_shortcode():
-    assert render.emojize(":heart:") == "❤️"
-    assert render.emojize(":thumbsup:") == "👍"
-
-
-def test_emojize_unknown_shortcode_left_alone():
-    assert render.emojize(":cool-doge:") == ":cool-doge:"
-
-
-def test_emojize_empty():
-    assert render.emojize("") == ""
-
-
-# --- apply_mrkdwn ---
-
-@pytest.mark.parametrize("text,expected", [
-    ("*bold*", "<strong>bold</strong>"),
-    ("_italic_", "<em>italic</em>"),
-    ("`code`", "<code>code</code>"),
-    ("~strike~", "<s>strike</s>"),
-    ("> quote", "<blockquote>quote</blockquote>"),
-])
-def test_apply_mrkdwn_simple(text, expected):
-    assert render.apply_mrkdwn(text) == expected
-
-
-def test_apply_mrkdwn_snake_case_not_italicized():
-    """foo_bar_baz must not become foo<em>bar</em>baz."""
-    out = render.apply_mrkdwn("foo_bar_baz")
-    assert "<em>" not in out
-    assert out == "foo_bar_baz"
-
-
-def test_apply_mrkdwn_inline_within_text():
-    out = render.apply_mrkdwn("hello *world* and `code` and _yes_")
-    assert "<strong>world</strong>" in out
-    assert "<code>code</code>" in out
-    assert "<em>yes</em>" in out
-
-
-def test_apply_mrkdwn_empty():
-    assert render.apply_mrkdwn("") == ""
-
-
-# --- expand_mentions ---
-
-def test_expand_mentions_user():
-    users = {"U1": {"display_name": "Alice"}}
-    assert "@Alice" in render.expand_mentions("<@U1>", users, {})
-
-
-def test_expand_mentions_user_with_alias():
-    out = render.expand_mentions("<@U1|aliased>", {}, {})
-    assert "@aliased" in out
-
-
-def test_expand_mentions_channel():
-    channels = {"C1": {"name": "general"}}
-    out = render.expand_mentions("<#C1>", {}, channels)
-    assert "#general" in out
-
-
-def test_expand_mentions_link_with_label():
-    out = render.expand_mentions("<https://x.com|click here>", {}, {})
-    assert 'href="https://x.com"' in out
-    assert ">click here</a>" in out
-
-
-def test_expand_mentions_bare_link():
-    out = render.expand_mentions("<https://x.com>", {}, {})
-    assert 'href="https://x.com"' in out
-
-
-def test_expand_mentions_broadcast():
-    for word in ("here", "channel", "everyone"):
-        out = render.expand_mentions(f"<!{word}>", {}, {})
-        assert f"@{word}" in out
-        assert "mention-broadcast" in out
-
-
-def test_expand_mentions_emoji_at_end():
-    """Pipeline applies mrkdwn + emojize after Slack syntax replacement."""
-    out = render.expand_mentions("hello :heart:", {}, {})
-    assert "❤️" in out
-
-
-# --- expand_for_preview ---
-
-def test_expand_for_preview_downgrades_links_to_span():
-    """Preview is inside <a class="thread-link">, so no nested <a>."""
-    out = render.expand_for_preview("<https://x.com>", {}, {})
-    assert "<a " not in out
-    assert '<span class="ext-link">' in out
 
 
 # --- render_files ---

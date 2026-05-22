@@ -7,7 +7,7 @@ display names, expand :shortcode: emoji, strip Slack <...> link wrappers),
 and write it into a standalone FTS5 database for v0.7 web search.
 
 Standalone — decoupled from slackdump.sqlite so slackdump schema changes
-don't break search.
+don't break search. Text normalization lives in core.text.
 """
 
 import argparse
@@ -17,79 +17,10 @@ import sqlite3
 from pathlib import Path
 from typing import Iterator
 
-import emoji
 from tqdm import tqdm
 
-CJK_CHAR = re.compile(r"[㐀-鿿豈-﫿]")
-CJK_RUN_GE2 = re.compile(r"[㐀-鿿豈-﫿]{2,}")
-
-
-JOIN_CJK = re.compile(r"(?<=[㐀-鿿豈-﫿])\s+(?=[㐀-鿿豈-﫿])")
-
-
-def join_cjk(text: str) -> str:
-    """Inverse of split_cjk for display: collapse the space between two CJK chars."""
-    if not text:
-        return text
-    prev = None
-    while prev != text:
-        prev = text
-        text = JOIN_CJK.sub("", text)
-    return text
-
-
-def split_cjk(text: str) -> str:
-    """Insert spaces between CJK ideographs so unicode61 tokenizes them one-by-one.
-
-    Why: unicode61 has no separator between CJK chars, so an entire Chinese run
-    becomes one token. Searching "发布" inside "今天发布新版本" then misses.
-    Pre-splitting at index time makes "发布" a 2-token phrase that matches.
-    """
-    return CJK_CHAR.sub(lambda m: " " + m.group(0) + " ", text)
-
-
-USER_MENTION = re.compile(r"<@([UW][A-Z0-9]+)(?:\|([^>]+))?>")
-CHANNEL_MENTION = re.compile(r"<#([C][A-Z0-9]+)(?:\|([^>]+))?>")
-LINK_WITH_LABEL = re.compile(r"<(https?://[^|>\s]+)\|([^>]+)>")
-LINK_BARE = re.compile(r"<(https?://[^>\s]+)>")
-SPECIAL_MENTION = re.compile(r"<!(here|channel|everyone)(?:\|[^>]+)?>")
-
-
-def display_name(uid: str | None, users: dict) -> str:
-    if not uid:
-        return ""
-    u = users.get(uid) or {}
-    return u.get("display_name") or u.get("real_name") or u.get("name") or uid
-
-
-def channel_name(cid: str, channels: dict) -> str:
-    return (channels.get(cid) or {}).get("name") or cid
-
-
-def normalize_text(text: str, users: dict, channels: dict) -> str:
-    """Resolve mention uids / channel cids, strip Slack <link> wrappers, emojize."""
-    if not text:
-        return ""
-
-    def repl_user(m: re.Match) -> str:
-        label = m.group(2)
-        if label:
-            return f"@{label}"
-        return f"@{display_name(m.group(1), users)}"
-
-    def repl_channel(m: re.Match) -> str:
-        label = m.group(2)
-        if label:
-            return f"#{label}"
-        return f"#{channel_name(m.group(1), channels)}"
-
-    text = USER_MENTION.sub(repl_user, text)
-    text = CHANNEL_MENTION.sub(repl_channel, text)
-    text = SPECIAL_MENTION.sub(lambda m: f"@{m.group(1)}", text)
-    text = LINK_WITH_LABEL.sub(lambda m: f"{m.group(2)} ({m.group(1)})", text)
-    text = LINK_BARE.sub(lambda m: m.group(1), text)
-    text = emoji.emojize(text, language="alias")
-    return split_cjk(text)
+from slack_log.core.slackdump_db import resolve_author
+from slack_log.core.text import CJK_CHAR, channel_name, join_cjk, normalize_text
 
 
 def open_db(db_path: Path) -> sqlite3.Connection:
@@ -155,7 +86,6 @@ def iter_messages(data_root: Path) -> Iterator[dict]:
                 if not ts:
                     continue
                 uid = msg.get("user") or msg.get("bot_id") or ""
-                from slack_log.splitter import resolve_author
                 author_name, _ = resolve_author(msg, users)
                 yield {
                     "ts": ts,

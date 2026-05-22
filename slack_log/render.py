@@ -7,26 +7,21 @@ data/ → html/ 静态 HTML 渲染（jinja2）
 - 全局 index.html：channel 列表入口
 
 外部稳定引用格式：html/channels/<cid>/threads/<thread_ts>.html#msg-<ts>
+
+Slack 文本处理（mention / mrkdwn / emoji 展开）在 core.text。
 """
 
 import argparse
-import html
 import json
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
 
-import emoji
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from tqdm import tqdm
 
-
-def emojize(text: str) -> str:
-    """:heart: → ❤️。Slack 自定义 emoji（库里没有的）保留原 shortcode。"""
-    if not text:
-        return ""
-    return emoji.emojize(text, language="alias")
+from slack_log.core.slackdump_db import resolve_author
+from slack_log.core.text import emojize, expand_for_preview, expand_mentions
 
 
 def ts_to_human(ts: str) -> str:
@@ -62,117 +57,6 @@ def render_user(uid: str | None, users: dict) -> str:
 def render_channel(cid: str, channels: dict) -> str:
     c = channels.get(cid) or {}
     return c.get("name") or cid
-
-
-# Slack 消息文本里的特殊语法解析（参考 Slack message formatting）
-# <@U091...>             → @display_name
-# <@U091...|name>        → @name
-# <#C093...>             → #channel-name
-# <#C093...|name>        → #name
-# <!subteam^S123^...>    → @subteam (略简)
-# <!here> / <!channel> / <!everyone>
-# <http://x.com|label>   → <a href="x.com">label</a>
-# <http://x.com>         → <a href="x.com">x.com</a>
-
-USER_MENTION = re.compile(r"<@([UW][A-Z0-9]+)(?:\|([^>]+))?>")
-CHANNEL_MENTION = re.compile(r"<#([C][A-Z0-9]+)(?:\|([^>]+))?>")
-LINK_WITH_LABEL = re.compile(r"<(https?://[^|>\s]+)\|([^>]+)>")
-LINK_BARE = re.compile(r"<(https?://[^>\s]+)>")
-BROADCAST = re.compile(r"<!(here|channel|everyone)>")
-
-
-def apply_mrkdwn(text: str) -> str:
-    """Slack mrkdwn → HTML (subset)."""
-    if not text:
-        return ""
-    # inline code 先（防内部 * 被改）
-    text = re.sub(r"`([^`\n]+)`", lambda m: f"<code>{m.group(1)}</code>", text)
-    # 块 quote
-    text = re.sub(r"(?m)^&gt;\s*(.+)$", r"<blockquote>\1</blockquote>", text)
-    text = re.sub(r"(?m)^>\s*(.+)$", r"<blockquote>\1</blockquote>", text)
-    # bold *xxx*
-    text = re.sub(
-        r"(?<![a-zA-Z0-9_*])\*([^\s*][^*\n]*?[^\s*]|\S)\*(?![a-zA-Z0-9_*])",
-        r"<strong>\1</strong>",
-        text,
-    )
-    # italic _xxx_ 避开 snake_case
-    text = re.sub(
-        r"(?<![a-zA-Z0-9_])_([^\s_][^_\n]*?[^\s_]|\S)_(?![a-zA-Z0-9_])",
-        r"<em>\1</em>",
-        text,
-    )
-    # strike ~xxx~
-    text = re.sub(
-        r"(?<![a-zA-Z0-9~])~([^\s~][^~\n]*?[^\s~]|\S)~(?![a-zA-Z0-9~])",
-        r"<s>\1</s>",
-        text,
-    )
-    return text
-
-
-def expand_mentions(text: str, users: dict, channels: dict) -> str:
-    """Slack 特殊语法 → HTML 片段。
-
-    Slack API 返回的 text 里普通的 `<`/`>`/`&` 已被 escape 成 entity，所以原始
-    text 里以 `<` 开头的只可能是 Slack 自己的特殊语法（mention/link/channel/broadcast）。
-    我们替换这些特殊语法为 HTML span/a，其他字符原样保留。模板里用 `|safe` 输出。
-    """
-    if not text:
-        return ""
-
-    def user_repl(m):
-        uid, alias = m.group(1), m.group(2)
-        if alias:
-            name = alias
-        else:
-            u = users.get(uid) or {}
-            name = u.get("display_name") or u.get("real_name") or u.get("name") or uid
-        return f'<span class="mention mention-user">@{html.escape(name)}</span>'
-
-    def chan_repl(m):
-        cid, alias = m.group(1), m.group(2)
-        if alias:
-            name = alias
-        else:
-            c = channels.get(cid) or {}
-            name = c.get("name") or cid
-        return f'<span class="mention mention-channel">#{html.escape(name)}</span>'
-
-    def link_with_label_repl(m):
-        url, label = m.group(1), m.group(2)
-        return f'<a class="ext-link" href="{html.escape(url)}" target="_blank" rel="noopener">{html.escape(label)}</a>'
-
-    def link_bare_repl(m):
-        url = m.group(1)
-        url_esc = html.escape(url)
-        return f'<a class="ext-link" href="{url_esc}" target="_blank" rel="noopener">{url_esc}</a>'
-
-    text = USER_MENTION.sub(user_repl, text)
-    text = CHANNEL_MENTION.sub(chan_repl, text)
-    text = LINK_WITH_LABEL.sub(link_with_label_repl, text)
-    text = LINK_BARE.sub(link_bare_repl, text)
-    text = BROADCAST.sub(lambda m: f'<span class="mention mention-broadcast">@{m.group(1)}</span>', text)
-    text = apply_mrkdwn(text)
-    text = emojize(text)
-    return text
-
-
-def expand_for_preview(text: str, users: dict, channels: dict) -> str:
-    """Preview 在父 `<a>` 内部（channel index 的 thread-link 是 `<a>`），
-    所以不能输出 `<a>` (HTML 不允许 `<a>` 嵌套 `<a>` —— 浏览器自动闭合外层
-    破坏布局)。外链降级成 `<span>`，其他跟 expand_mentions 一样。
-    """
-    if not text:
-        return ""
-    # 复用 expand_mentions 但跑完后把生成的 ext-link <a> 替换成 <span>
-    rendered = expand_mentions(text, users, channels)
-    rendered = re.sub(
-        r'<a class="ext-link"[^>]*>([^<]*)</a>',
-        r'<span class="ext-link">\1</span>',
-        rendered,
-    )
-    return rendered
 
 
 def load_thread(thread_jsonl: Path) -> list[dict]:
@@ -269,8 +153,6 @@ def render_files(files: list, channel_dir: Path) -> list:
 def enrich_messages(msgs: list[dict], users: dict, channels: dict, channel_dir: Path) -> list[dict]:
     """Attach the _-prefixed render fields each message needs for thread.html.
     Shared by static render (render.py) and dynamic render (server.py)."""
-    from slack_log.splitter import resolve_author
-
     for m in msgs:
         m["_ref_id"] = f"msg-{m['ts']}"
         m["_human_time"] = ts_to_human(m["ts"])
