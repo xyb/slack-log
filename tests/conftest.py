@@ -113,8 +113,8 @@ def sqlite_with_threads(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def sqlite_multi(tmp_path: Path) -> Path:
-    """SQLite with a multi-participant thread + an empty channel — the cases
-    `sqlite_with_threads` doesn't cover, both surfaced by real-data testing."""
+    """SQLite covering the cases `sqlite_with_threads` doesn't: a multi-participant
+    thread, an empty channel, a DM and an MPIM — all surfaced by real-data testing."""
     db = tmp_path / "multi.sqlite"
     conn = sqlite3.connect(db)
     _schema(conn)
@@ -128,17 +128,29 @@ def sqlite_multi(tmp_path: Path) -> Path:
                       "reply_users": ["U003", "U002"]})
     _insert_msg(conn, "1700000100.000002", "C001", "1700000100.000001", "r1", user="U002")
     _insert_msg(conn, "1700000100.000003", "C001", "1700000100.000001", "r2", user="U003")
+    # D001 a DM, G001 an MPIM — each with one message.
+    _insert_msg(conn, "1700000200.000001", "D001", None, "dm hi", user="U001")
+    _insert_msg(conn, "1700000300.000001", "G001", None, "mpim hi", user="U001")
 
-    # C001 has messages; C099 is an empty channel (a CHANNEL row, no MESSAGE rows).
-    for cid, name in (("C001", "general"), ("C099", "ghost")):
+    # C001/D001/G001 have messages; C099 is empty (a CHANNEL row, no MESSAGE rows).
+    channels = [
+        {"id": "C001", "name": "general"},
+        {"id": "C099", "name": "ghost"},
+        {"id": "D001", "is_im": True, "user": "U002"},
+        {"id": "G001", "is_mpim": True, "members": ["U001", "U002", "U003"]},
+    ]
+    for c in channels:
         conn.execute(
             "INSERT INTO CHANNEL (ID, CHUNK_ID, NAME, DATA) VALUES (?, 1, ?, ?)",
-            (cid, name, json.dumps({"id": cid, "name": name}).encode()),
+            (c["id"], c.get("name"), json.dumps(c).encode()),
         )
     for uid in ("U001", "U002", "U003"):
         conn.execute(
             "INSERT INTO S_USER (ID, CHUNK_ID, USERNAME, DATA) VALUES (?, 1, ?, ?)",
-            (uid, uid, json.dumps({"id": uid, "name": uid}).encode()),
+            (uid, uid, json.dumps({
+                "id": uid, "name": uid,
+                "profile": {"image_48": f"{uid}-48", "image_72": f"{uid}-72"},
+            }).encode()),
         )
 
     conn.commit()

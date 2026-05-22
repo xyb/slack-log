@@ -176,9 +176,11 @@ def test_team_server_serves_pages(archive):
 
 # --- regressions caught by real-data testing (2026-05-22) -----------------
 
-def test_stores_agree_on_multi_participant_and_empty_channel(sqlite_multi, tmp_path):
-    """Two drifts the synthetic fixture missed, found running the real archive:
+def test_stores_agree_on_dm_mpim_and_thread_edge_cases(sqlite_multi, tmp_path):
+    """Cases the basic fixture misses, all surfaced by running the real archive:
+    a DM, an MPIM, a multi-participant thread, an empty channel.
 
+    Two drifts this pins down:
     1. participants was list(set(...)) — hash-ordered, so it differed between
        the split process and the team-ETL process. It must be sorted.
     2. the team channels table held empty channels (no threads); the personal
@@ -195,15 +197,27 @@ def test_stores_agree_on_multi_participant_and_empty_channel(sqlite_multi, tmp_p
     js = JsonlStore(data_root=data, db_path=personal_db)
     ss = SqliteStore(db_path=team_db)
 
-    # the empty channel C099 appears in neither store's listing
+    # empty channel C099 in neither listing; the DM + MPIM in both
     assert "C099" not in js.list_channels()
     assert "C099" not in ss.list_channels()
-    assert js.list_channels() == ss.list_channels() == ["C001"]
+    assert sorted(js.list_channels()) == sorted(ss.list_channels()) == ["C001", "D001", "G001"]
 
-    # multi-participant thread: participants sorted + identical across stores
+    # multi-participant thread: participants sorted (not hash-ordered) + identical
     jt = js.thread_meta("C001")
-    st = ss.thread_meta("C001")
-    assert jt == st
-    assert jt[0]["participants"] == ["U001", "U002", "U003"]  # sorted, not hash-order
+    assert jt == ss.thread_meta("C001")
+    assert jt[0]["participants"] == ["U001", "U002", "U003"]
 
-    assert js.global_groups() == ss.global_groups()
+    # DM + MPIM thread_meta + load_thread agree field-for-field
+    for cid, ts in [("D001", "1700000200.000001"), ("G001", "1700000300.000001")]:
+        assert js.thread_meta(cid) == ss.thread_meta(cid)
+        assert js.load_thread(cid, ts) == ss.load_thread(cid, ts)
+
+    # global_groups: DM → dms (with the other party's avatar), MPIM → mpims
+    # (with member avatars); the two stores agree.
+    g = js.global_groups()
+    assert g == ss.global_groups()
+    assert [c["id"] for c in g["channels"]] == ["C001"]
+    assert [c["id"] for c in g["dms"]] == ["D001"]
+    assert [c["id"] for c in g["mpims"]] == ["G001"]
+    assert g["dms"][0]["avatar"] == "U002-72"        # the other party's image_72
+    assert "U001-48" in g["mpims"][0]["avatars"]     # member image_48s

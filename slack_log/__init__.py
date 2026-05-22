@@ -1,2 +1,3 @@
-"""slack-log: static IRC-log-style HTML viewer for Slack archives."""
-__version__ = "0.6.0"
+"""slack-log: a Slack workspace archive as a searchable web service."""
+
+__version__ = "0.10.0"

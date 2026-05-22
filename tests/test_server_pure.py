@@ -352,3 +352,23 @@ def test_channel_only_user_excludes_dm(app_channel_only):
     msgs = r.json()["messages"]
     assert all(m["channel_id"] == "C001" for m in msgs)
     assert not any("chitchat" in m["text"] for m in msgs)
+
+
+def test_attachment_endpoint_serves_file_and_404s(tmp_path: Path):
+    """/channels/<cid>/attachments/<fname> streams a downloaded file; a missing
+    file 404s."""
+    data = tmp_path / "data"
+    att = data / "channels" / "C001" / "attachments"
+    att.mkdir(parents=True)
+    (att / "F1.png").write_bytes(b"PNGDATA")
+    (data / "channels" / "C001" / "threads").mkdir()
+    (data / "users.json").write_text("{}")
+    (data / "channels.json").write_text("{}")
+    db = tmp_path / "search.db"
+    index.build_index(data, db)
+    client = TestClient(create_app(JsonlStore(data_root=data, db_path=db)))
+
+    r = client.get("/channels/C001/attachments/F1.png")
+    assert r.status_code == 200
+    assert r.content == b"PNGDATA"
+    assert client.get("/channels/C001/attachments/missing.png").status_code == 404
