@@ -74,7 +74,7 @@ make render-static    # → html-static/，file:// 或任意静态服务都能�
 ### ……或跑容器
 
 ```sh
-docker run -p 8770:8770 -v "$PWD/data:/data" xieyanbo/slack-log:0.9.0
+docker run -p 8770:8770 -v "$PWD/data:/data" xieyanbo/slack-log:0.10.0
 ```
 
 ### attach 的 Slack 凭据
@@ -195,6 +195,7 @@ MIT 协议）。
 - [x] v0.7 —— web 服务：HTTP 浏览 + FTS5 全文检索 + 按人时间线 + 深浅色 + 中英文 i18n
 - [x] v0.8 —— OIDC SSO、Docker 镜像、Kubernetes 部署文件
 - [x] v0.9 —— 全动态渲染、时间按浏览器时区显示、访问日志、GitHub Actions CI/CD
+- [x] v0.10 —— 服务内刷新（后台定时任务 + `POST /sync`）、splitter 重写（每 thread N+1 → 三遍线性扫）、同步日志实时流式输出
 
 ## 致谢
 

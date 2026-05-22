@@ -89,7 +89,7 @@ make render-static    # → html-static/, open with file:// or any static host
 ### …or run the container
 
 ```sh
-docker run -p 8770:8770 -v "$PWD/data:/data" xieyanbo/slack-log:0.9.0
+docker run -p 8770:8770 -v "$PWD/data:/data" xieyanbo/slack-log:0.10.0
 ```
 
 ### Slack credentials for attach
@@ -222,6 +222,8 @@ child process — does not affect slack-log's MIT license).
 - [x] v0.8 — OIDC SSO, Docker image, Kubernetes manifests
 - [x] v0.9 — fully dynamic rendering, browser-local timestamps, access logging,
   GitHub Actions CI/CD
+- [x] v0.10 — in-process refresh (background scheduler + `POST /sync`), splitter
+  rewrite (per-thread N+1 → three linear passes), live-streamed sync logs
 
 ## Acknowledgements
 
