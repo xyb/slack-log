@@ -102,3 +102,4 @@ search.db-*
 # copy stays untracked so contributors never commit their own cluster config.
 deploy/k8s/*.yaml
 !deploy/k8s/*.example.yaml
+.slacklog-build.lock

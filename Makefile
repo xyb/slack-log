@@ -42,7 +42,14 @@ help:
 
 # --- personal profile -----------------------------------------------------
 
-personal-build: fetch split attach index
+# The concurrency lock is NOT in the Makefile -- the Makefile is just a caller,
+# and running the python module directly would bypass it. The lock lives at the
+# one core entry every build funnels through, `slack_log.pipeline.__main__`
+# (process-wide fcntl.flock, see slack_log/lock.py): a second concurrent build
+# can't get the lock and exits, and the lock auto-releases on process exit (no
+# stale deadlock). These targets are thin delegates.
+personal-build:
+	$(PY) -m slack_log.pipeline --profile personal --max-mb $(MAX_MB) $(_INCLUDE_ARG)
 
 personal-serve:
 	$(PY) -m slack_log.web.app --profile personal --db ./search.db --data ./data \
@@ -54,7 +61,8 @@ render-static:
 
 # --- team profile ---------------------------------------------------------
 
-team-build: fetch team-index team-attach
+team-build:
+	$(PY) -m slack_log.pipeline --profile team --max-mb $(MAX_MB) $(_INCLUDE_ARG)
 
 team-serve:
 	$(PY) -m slack_log.web.app --profile team --db ./search.db \
@@ -68,7 +76,7 @@ fetch:
 	mkdir -p raw
 	@if [ -f raw/slackdump.sqlite ]; then \
 	    echo "→ slackdump resume (incremental)"; \
-	    cd raw && slackdump resume -files=false . ; \
+	    cd raw && slackdump resume -files=false -refresh . ; \
 	else \
 	    echo "→ slackdump archive (first run, full)"; \
 	    cd raw && slackdump archive -o . -files=false ; \
@@ -76,6 +84,9 @@ fetch:
 
 # Weekly reconcile: pick up message edits and deletions. See docs/.
 RECONCILE_DAYS ?= 90
+# Low-level building block (manual weekly maintenance). Do not run alongside
+# personal-build/team-build -- it also writes raw/slackdump.sqlite and would
+# conflict; normal builds are guarded by the lock at the build entry point.
 reconcile:
 	mkdir -p raw
 	cd raw && slackdump archive -o . -files=false -member-only \
