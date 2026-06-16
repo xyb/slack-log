@@ -7,6 +7,7 @@ human-curated highlight reel — keep entries to one tight line.
 ## [Unreleased]
 
 ### Added
+- **CLI search — `python3 -m slack_log.search "<query>"`** (`make search Q="…"`). Chinese-aware: the query runs through the same CJK-split FTS transform the indexer uses, so a multi-char word like `黑边` matches — unlike raw `sqlite3 search.db "… MATCH '黑边'"`, which silently returns 0. Filters: `--channel`/`--user`/`--after`/`--before`/`--kind`/`--limit`, plus `--full`/`--json`. `index.search()` gained matching `channel`/`user`/`after`/`before` keyword filters (`tests/test_search_cli.py`).
 - **Single locked build entry — `python3 -m slack_log.pipeline`** (`--profile personal|team`, `--max-mb`, `--include`). Orchestrates the whole build (fetch → split → attach → index) under one process-wide mutex, so concurrent builds can't corrupt `raw/slackdump.sqlite` + `search.db`.
 - **`slack_log.lock.build_lock`** — non-blocking `fcntl.flock` mutex; a second build raises `BuildLockHeld` and exits immediately. The lock is tied to the fd, so the kernel auto-releases it on process exit/crash/SIGKILL (no stale lockfile to clean up).
 - **Tests** — `tests/test_lock.py` (acquire/reject/release, non-blocking, pid record, auto-release after the holder is killed) and `tests/test_pipeline_orchestrator.py` (per-profile step order, lock-held → exit 1 without running the build).

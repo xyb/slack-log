@@ -414,31 +414,48 @@ def _to_fts_query(q: str) -> str:
 
 
 def search(conn: sqlite3.Connection, query: str, limit: int = 50,
-           include: set[str] | None = None) -> list[dict]:
+           include: set[str] | None = None, *, channel: str | None = None,
+           user: str | None = None, after: str | None = None,
+           before: str | None = None) -> list[dict]:
     """FTS5 MATCH query returning hits with HTML-marked snippet.
 
     include: subset of {channel, dm, mpim} to limit results by kind.
+    channel/user: case-insensitive substring filter on channel_name / user_name.
+    after/before: epoch-second strings; ts >= after (inclusive) and ts < before
+    (exclusive). ts is a 10-digit epoch float string, so lexicographic compare
+    is correct for the same magnitude.
     """
     if not query.strip():
         return []
     query = _to_fts_query(query)
     if not query:
         return []
-    kind_clause, kind_params = "", []
+    where, params = ["messages MATCH ?"], [query]
     if include:
-        ph = ",".join("?" * len(include))
-        kind_clause = f" AND kind IN ({ph})"
-        kind_params = sorted(include)
+        where.append(f"kind IN ({','.join('?' * len(include))})")
+        params.extend(sorted(include))
+    if channel:
+        where.append("channel_name LIKE ?")
+        params.append(f"%{channel}%")
+    if user:
+        where.append("user_name LIKE ?")
+        params.append(f"%{user}%")
+    if after:
+        where.append("ts >= ?")
+        params.append(after)
+    if before:
+        where.append("ts < ?")
+        params.append(before)
     cur = conn.execute(
         f"""
         SELECT ts, thread_ts, channel_id, channel_name, user_name, text,
                snippet(messages, 0, '<mark>', '</mark>', '…', 16) AS snippet
         FROM messages
-        WHERE messages MATCH ?{kind_clause}
+        WHERE {' AND '.join(where)}
         ORDER BY rank
         LIMIT ?
         """,
-        (query, *kind_params, limit),
+        (*params, limit),
     )
     cols = [d[0] for d in cur.description]
     out = []

@@ -16,7 +16,7 @@ INCLUDE ?=
 MAX_MB ?= 10
 _INCLUDE_ARG = $(if $(INCLUDE),--include $(INCLUDE),)
 
-.PHONY: help \
+.PHONY: help search \
         personal-build personal-serve render-static \
         team-build team-serve \
         fetch reconcile split attach index team-index team-attach \
@@ -33,12 +33,24 @@ help:
 	@echo "  make team-serve          run the web service (reads search.db)"
 	@echo "  (MAX_MB=N caps attachment size, default 10)"
 	@echo ""
+	@echo "Search (Chinese-aware — do NOT use raw sqlite3 MATCH):"
+	@echo "  make search Q=\"黑边\"      full-text search; ARGS=\"--channel X --after 2026-06-01\""
+	@echo ""
 	@echo "Building blocks / misc:"
 	@echo "  make fetch               slackdump archive --resume (cheap, additive)"
 	@echo "  make reconcile           re-fetch last 90 days (pick up edits/deletes)"
 	@echo "  make test                run pytest"
 	@echo "  make clean-html          remove html/ + html-static/"
 	@echo "  make clean-all           ⚠ also remove data/ + search.db"
+
+# --- search ---------------------------------------------------------------
+
+# Chinese-aware CLI search over search.db. Q="..." is the query; ARGS="..." passes
+# extra flags (--channel/--user/--after/--before/--kind/--limit/--full/--json).
+# Goes through slack_log.search so the CJK-splitting FTS transform runs — raw
+# `sqlite3 search.db "... MATCH '黑边'"` silently returns 0 for multi-char Chinese.
+search:
+	$(PY) -m slack_log.search $(Q) $(ARGS)
 
 # --- personal profile -----------------------------------------------------
 
