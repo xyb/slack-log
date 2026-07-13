@@ -103,3 +103,6 @@ search.db-*
 deploy/k8s/*.yaml
 !deploy/k8s/*.example.yaml
 .slacklog-build.lock
+
+# Local-only overrides — never commit
+*.local
