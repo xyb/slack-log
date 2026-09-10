@@ -37,18 +37,30 @@ REPO = Path(__file__).resolve().parent.parent.parent
 
 def fetch(raw: Path) -> None:
     """slackdump incremental pull (full archive on first run). slackdump is an
-    external binary."""
+    external binary.
+
+    Auth is passed explicitly as token + cookie. Without it slackdump tries to
+    read its own encrypted credential cache, fails in a non-interactive
+    subprocess, and falls back to browser login -- which then dies with
+    "browser auth is not supported in dumb terminals". The same binary works
+    when a human runs it in a terminal, which is what made this look like an
+    expired-credentials problem for days at a time (2026-08-18, 2026-09-10).
+    The credentials are the ones _attach already uses, so nothing new to set up.
+    """
     raw.mkdir(parents=True, exist_ok=True)
+    xoxc, xoxd = load_token()
+    # Pass them through the environment, not argv: `resume` does not accept
+    # -token/-cookie (those belong to `workspace new`), and argv would show up
+    # in `ps` output and in Python's CalledProcessError, i.e. in the logs.
+    env = {**os.environ, "SLACK_TOKEN": xoxc, "SLACK_COOKIE": xoxd}
     if (raw / "slackdump.sqlite").exists():
-        print("-> slackdump resume (incremental)")
-        subprocess.run(
-            ["slackdump", "resume", "-files=false", "-refresh", "."],
-            cwd=raw, check=True)
+        print("-> slackdump resume (incremental)", flush=True)
+        cmd = ["slackdump", "resume", "-files=false", "-refresh", "."]
     else:
-        print("-> slackdump archive (first run, full)")
-        subprocess.run(
-            ["slackdump", "archive", "-o", ".", "-files=false"],
-            cwd=raw, check=True)
+        print("-> slackdump archive (first run, full)", flush=True)
+        cmd = ["slackdump", "archive", "-o", ".", "-files=false"]
+    print(f"   $ {' '.join(cmd)}   (SLACK_TOKEN/SLACK_COOKIE passed via environment)", flush=True)
+    subprocess.run(cmd, cwd=raw, check=True, env=env)
 
 
 def _attach(*, source_sqlite: Path | None, data_root: Path, max_mb: int) -> None:
