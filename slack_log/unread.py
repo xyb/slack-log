@@ -156,7 +156,7 @@ def ack(conn, rconn, until) -> int:
     return len(last)
 
 
-def _print(r: dict, max_per_chat: int) -> None:
+def _print(r: dict, max_per_chat: int, partial: bool = False) -> None:
     w = r["window"]
     frm = fmt_ts(w["from"]) if w["from"] is not None else "(no watermark yet: everything)"
     print(f"window: {frm} ~ {fmt_ts(w['until'])}  (epoch {w['from']} ~ {w['until']}, "
@@ -179,7 +179,11 @@ def _print(r: dict, max_per_chat: int) -> None:
             print(f"      {fmt_ts(m['ts'])}{reply} {m['user_name']}: {m['text'].replace(chr(10), ' ')}")
         if max_per_chat and len(msgs) > max_per_chat:
             print(f"      … {len(msgs) - max_per_chat} earlier, use --channel X --max-per-chat 0")
-    if r["chats"] and w["mode"] == "watermark":
+    if partial:
+        # ack advances every conversation; acking after a filtered view would
+        # swallow the new messages of conversations that were never shown
+        print("\n(--channel showed only some conversations: do not ack from this view)")
+    elif r["chats"] and w["mode"] == "watermark":
         print(f"\nafter reviewing, advance the watermark: make ack UNTIL={w['until']!r}")
 
 
@@ -224,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.json:
         print(json.dumps(r, ensure_ascii=False, indent=1))
     else:
-        _print(r, a.max_per_chat)
+        _print(r, a.max_per_chat, partial=bool(a.channel))
     return 0
 
 

@@ -103,3 +103,9 @@ def test_cli(db, capsys):
     U.main(["ack", "--db", str(db), "--until", repr(TS_0030)])
     U.main(["--db", str(db)])
     assert "0 new messages" in capsys.readouterr().out
+
+
+def test_cli_channel_filter_does_not_offer_ack(db, capsys):
+    U.main(["--db", str(db), "--channel", "team"])
+    out = capsys.readouterr().out
+    assert "please send the forms" in out and "make ack" not in out
