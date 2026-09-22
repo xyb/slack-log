@@ -23,6 +23,7 @@ from pathlib import Path
 
 from slack_log.core.text import join_cjk
 from slack_log.pipeline.index import search
+from slack_log.unread import TZ, date_to_epoch
 
 _MARK = re.compile(r"</?mark>")
 
@@ -41,14 +42,14 @@ DEFAULT_DB = Path(__file__).resolve().parent.parent / "search.db"
 
 
 def _date_to_epoch(date_str: str) -> str:
-    """YYYY-MM-DD → epoch-second string (UTC midnight), for ts range filters."""
-    d = _dt.datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=_dt.timezone.utc)
-    return str(int(d.timestamp()))
+    """YYYY-MM-DD → epoch-second string of local (unread.TZ) midnight. UTC midnight
+    would silently drop the first hours of a local day (8h for UTC+8)."""
+    return str(int(date_to_epoch(date_str)))
 
 
 def _fmt_ts(ts: str) -> str:
     try:
-        return _dt.datetime.fromtimestamp(float(ts), _dt.timezone.utc).strftime("%Y-%m-%d %H:%M")
+        return _dt.datetime.fromtimestamp(float(ts), TZ).strftime("%Y-%m-%d %H:%M")
     except (ValueError, TypeError):
         return ts or "?"
 

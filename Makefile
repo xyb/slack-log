@@ -16,7 +16,7 @@ INCLUDE ?=
 MAX_MB ?= 10
 _INCLUDE_ARG = $(if $(INCLUDE),--include $(INCLUDE),)
 
-.PHONY: help search \
+.PHONY: help search unread ack \
         personal-build personal-serve render-static \
         team-build team-serve \
         fetch reconcile split attach index team-index team-attach \
@@ -35,6 +35,8 @@ help:
 	@echo ""
 	@echo "Search (Chinese-aware — do NOT use raw sqlite3 MATCH):"
 	@echo "  make search Q=\"黑边\"      full-text search; ARGS=\"--channel X --after 2026-06-01\""
+	@echo "  make unread              new messages since the review watermark, every conversation"
+	@echo "  make ack UNTIL=<epoch>   advance the watermark (use the epoch unread printed)"
 	@echo ""
 	@echo "Building blocks / misc:"
 	@echo "  make fetch               slackdump archive --resume (cheap, additive)"
@@ -51,6 +53,17 @@ help:
 # `sqlite3 search.db "... MATCH '黑边'"` silently returns 0 for multi-char Chinese.
 search:
 	$(PY) -m slack_log.search $(Q) $(ARGS)
+
+# Daily review: every conversation's new messages since its review watermark
+# (no channel allow-list; first-seen conversations are listed in full). Read-only.
+# ARGS: --detail / --channel X / --since 2026-09-01 / --json
+unread:
+	$(PY) -m slack_log.unread $(ARGS)
+
+# Advance the watermark once the review is done. UNTIL = the epoch unread printed.
+ack:
+	@test -n "$(UNTIL)" || (echo "usage: make ack UNTIL=<epoch printed by unread>" && exit 2)
+	$(PY) -m slack_log.unread ack --until $(UNTIL)
 
 # --- personal profile -----------------------------------------------------
 
