@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
+import math
 import os
 import sqlite3
 import sys
@@ -74,6 +75,14 @@ def _rows(conn):
         "WHERE ts IS NOT NULL AND ts != ''").fetchall()
 
 
+def _lower(since, wm):
+    """Exclusive lower bound. --since includes its own midnight; a watermark
+    excludes the message it points at; no watermark means everything."""
+    if since is not None:
+        return math.nextafter(since, -math.inf)
+    return wm if wm is not None else float("-inf")
+
+
 def unread(conn, rconn, *, since=None, until=None, detail=False, channel=None) -> dict:
     """New messages after each conversation's watermark, up to `until` (inclusive,
     default the newest ts in search.db). `since` ignores watermarks."""
@@ -93,7 +102,7 @@ def unread(conn, rconn, *, since=None, until=None, detail=False, channel=None) -
                                    "new_chat": since is None and cid not in wms,
                                    "count": 0, "first_ts": None, "last_ts": None, "late": 0})
         wm = wms.get(cid, (None,))[0]
-        lo = since if since is not None else (wm if wm is not None else float("-inf"))
+        lo = _lower(since, wm)
         if wm is not None and ts <= wm:
             below[cid] = below.get(cid, 0) + 1
         if lo < ts <= until:
@@ -111,13 +120,12 @@ def unread(conn, rconn, *, since=None, until=None, detail=False, channel=None) -
               and (not channel or channel in c["chat_id"] or channel in (c["name"] or ""))]
     if detail:
         for c in listed:
-            wm = wms.get(c["chat_id"], (None,))[0]
-            lo = since if since is not None else (wm if wm is not None else float("-inf"))
+            lo = _lower(since, wms.get(c["chat_id"], (None,))[0])
             c["messages"] = [
                 {"ts": ts, "user_name": u, "text": join_cjk(t or ""), "thread_ts": th}
                 for ts, u, t, th in conn.execute(
                     "SELECT ts, user_name, text, thread_ts FROM messages WHERE channel_id=? "
-                    "AND CAST(ts AS REAL)>? AND CAST(ts AS REAL)<=? ORDER BY CAST(ts AS REAL)",
+                    "AND ts IS NOT NULL AND ts != '' AND CAST(ts AS REAL)>? AND CAST(ts AS REAL)<=? ORDER BY CAST(ts AS REAL)",
                     (c["chat_id"], lo, until))]
     listed.sort(key=lambda c: (not c["late"], not c["new_chat"], -c["count"]))
     lows = [since] if since is not None else [w[0] for w in wms.values()]
@@ -132,16 +140,31 @@ def unread(conn, rconn, *, since=None, until=None, detail=False, channel=None) -
         "chats_new": sum(1 for c in listed if c["new_chat"]),
         "messages": sum(c["count"] for c in listed),
         "no_ts": no_ts,
+        "ack_count": sum(1 for r in rows if r[3] <= until),
         "chats": listed,
     }
 
 
-def ack(conn, rconn, until) -> int:
+class StaleAck(Exception):
+    pass
+
+
+def ack(conn, rconn, until, expect_count: int) -> int:
     """Advance every conversation's watermark to its last message at or before
-    `until`. Never moves a watermark backwards. Returns conversations touched."""
+    `until`. Never moves a watermark backwards. Returns conversations touched.
+
+    `expect_count` is the number of messages with ts <= until that `unread`
+    printed. If a build ran in between and brought in messages with ts <= until,
+    they were never shown, and acking would bury them under the watermark where
+    even the late check can't see them — so a mismatch refuses."""
     until = float(until)
+    rows = _rows(conn)
+    now_count = sum(1 for r in rows if r[3] <= until)
+    if now_count != expect_count:
+        raise StaleAck(f"{now_count} messages with ts <= {until!r} now, {expect_count} when "
+                       f"unread ran: rerun unread and review before acking")
     last: dict[str, tuple[float, str, int]] = {}
-    for cid, _, _, ts, ts_str in _rows(conn):
+    for cid, _, _, ts, ts_str in rows:
         if ts <= until:
             prev = last.get(cid, (float("-inf"), None, 0))
             last[cid] = (max(prev[0], ts), ts_str if ts >= prev[0] else prev[1], prev[2] + 1)
@@ -194,7 +217,8 @@ def _print(r: dict, max_per_chat: int, partial: bool = False) -> None:
         # swallow the new messages of conversations that were never shown
         print("\n(--channel showed only some conversations: do not ack from this view)")
     elif r["chats"] and w["mode"] == "watermark":
-        print(f"\nafter reviewing, advance the watermark: make ack UNTIL={w['until']!r}")
+        print(f"\nafter reviewing, advance the watermark: "
+              f"make ack UNTIL={w['until']!r} COUNT={r['ack_count']}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -204,6 +228,9 @@ def main(argv: list[str] | None = None) -> int:
         ap.add_argument("--db", default=str(DEFAULT_DB))
         ap.add_argument("--until", type=float, required=True,
                         help="the epoch `unread` printed — not the current time")
+        ap.add_argument("--count", type=int, required=True,
+                        help="the COUNT `unread` printed; a mismatch means messages were "
+                             "imported since, and ack refuses")
         a = ap.parse_args(argv[1:])
     else:
         ap = argparse.ArgumentParser(prog="python3 -m slack_log.unread",
@@ -223,7 +250,11 @@ def main(argv: list[str] | None = None) -> int:
     conn, rconn = sqlite3.connect(a.db), open_review(a.db)
     try:
         if argv[:1] == ["ack"]:
-            n = ack(conn, rconn, a.until)
+            try:
+                n = ack(conn, rconn, a.until, a.count)
+            except StaleAck as e:
+                print(f"refusing to advance the watermark: {e}", file=sys.stderr)
+                return 1
             print(f"watermark advanced to {fmt_ts(a.until)} (epoch {a.until!r}), {n} conversations")
             return 0
         try:

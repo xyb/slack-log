@@ -36,7 +36,7 @@ help:
 	@echo "Search (Chinese-aware — do NOT use raw sqlite3 MATCH):"
 	@echo "  make search Q=\"黑边\"      full-text search; ARGS=\"--channel X --after 2026-06-01\""
 	@echo "  make unread              new messages since the review watermark, every conversation"
-	@echo "  make ack UNTIL=<epoch>   advance the watermark (use the epoch unread printed)"
+	@echo "  make ack UNTIL=.. COUNT=..  advance the watermark (values from unread's last line)"
 	@echo ""
 	@echo "Building blocks / misc:"
 	@echo "  make fetch               slackdump archive --resume (cheap, additive)"
@@ -60,10 +60,10 @@ search:
 unread:
 	$(PY) -m slack_log.unread $(ARGS)
 
-# Advance the watermark once the review is done. UNTIL = the epoch unread printed.
+# Advance the watermark once the review is done. UNTIL/COUNT = unread's last line.
 ack:
-	@test -n "$(UNTIL)" || (echo "usage: make ack UNTIL=<epoch printed by unread>" && exit 2)
-	$(PY) -m slack_log.unread ack --until $(UNTIL)
+	@test -n "$(UNTIL)" -a -n "$(COUNT)" || (echo "usage: make ack UNTIL=<epoch> COUNT=<n>, both from unread's last line" && exit 2)
+	$(PY) -m slack_log.unread ack --until $(UNTIL) --count $(COUNT)
 
 # --- personal profile -----------------------------------------------------
 

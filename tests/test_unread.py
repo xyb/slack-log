@@ -48,7 +48,8 @@ def _run(db, **kw):
 def _ack(db, until):
     conn, rc = sqlite3.connect(db), U.open_review(db)
     try:
-        return U.ack(conn, rc, until)
+        n = sum(1 for r in U._rows(conn) if r[3] <= until)
+        return U.ack(conn, rc, until, n)
     finally:
         conn.close()
         rc.close()
@@ -60,7 +61,11 @@ def test_local_0030_old_boundary_misses_new_hits(db):
     old = conn.execute(q.format("strftime('%s','2026-01-15')")).fetchone()[0]
     new = conn.execute(q.format(search_cli._date_to_epoch("2026-01-15"))).fetchone()[0]
     assert (old, new) == (0, 1)
-    assert _run(db, since=U.date_to_epoch("2026-01-15"))["messages"] == 1
+    # --since includes its own 00:00:00; the second before it doesn't count
+    midnight = U.date_to_epoch("2026-01-15")
+    _add(db, "C1", "team", midnight, "at midnight")
+    _add(db, "C1", "team", midnight - 1, "a second before")
+    assert _run(db, since=midnight)["messages"] == 2
     assert search_cli._fmt_ts(str(TS_0030)) == "2026-01-15 00:30"
 
 
@@ -101,8 +106,8 @@ def test_cli(db, capsys):
     U.main(["--db", str(db), "--detail"])
     out = capsys.readouterr().out
     assert "please send the forms" in out and "2026-01-15 00:30" in out
-    assert f"make ack UNTIL={TS_0030!r}" in out
-    U.main(["ack", "--db", str(db), "--until", repr(TS_0030)])
+    assert f"make ack UNTIL={TS_0030!r} COUNT=1" in out
+    U.main(["ack", "--db", str(db), "--until", repr(TS_0030), "--count", "1"])
     U.main(["--db", str(db)])
     assert "0 new messages" in capsys.readouterr().out
 
@@ -125,3 +130,28 @@ def test_empty_db_and_missing_ts(tmp_path, capsys):
     conn.commit()
     conn.close()
     assert _run(path)["no_ts"] == 1
+
+
+def test_detail_skips_empty_ts(db, capsys):
+    conn = index.open_db(db)
+    index._insert_message(conn, {"text": "empty-ts body", "user_name": "u", "channel_name": "team",
+                                 "ts": "", "thread_ts": None, "channel_id": "C1",
+                                 "user_id": "U1", "kind": "channel"})
+    conn.commit()
+    conn.close()
+    U.main(["--db", str(db), "--detail"])
+    out = capsys.readouterr().out
+    assert "please send the forms" in out and "empty-ts body" not in out and "1 messages have no ts" in out
+
+
+def test_ack_refuses_when_messages_imported_after_unread(db):
+    r = _run(db)
+    _add(db, "C1", "team", TS_0030 - 3600, "brought in by a build after unread")
+    conn, rc = sqlite3.connect(db), U.open_review(db)
+    try:
+        with pytest.raises(U.StaleAck):
+            U.ack(conn, rc, r["window"]["until"], r["ack_count"])
+    finally:
+        conn.close()
+        rc.close()
+    assert _run(db)["messages"] == 2
