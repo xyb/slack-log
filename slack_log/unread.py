@@ -70,13 +70,17 @@ def open_review(db_path) -> sqlite3.Connection:
 def _rows(conn):
     """(channel_id, channel_name, kind, ts_float, ts_str) for every message."""
     return conn.execute(
-        "SELECT channel_id, channel_name, kind, CAST(ts AS REAL), ts FROM messages").fetchall()
+        "SELECT channel_id, channel_name, kind, CAST(ts AS REAL), ts FROM messages "
+        "WHERE ts IS NOT NULL AND ts != ''").fetchall()
 
 
 def unread(conn, rconn, *, since=None, until=None, detail=False, channel=None) -> dict:
     """New messages after each conversation's watermark, up to `until` (inclusive,
     default the newest ts in search.db). `since` ignores watermarks."""
     rows = _rows(conn)
+    # a message without a ts fits no window; count it so it can't vanish silently
+    no_ts = conn.execute(
+        "SELECT COUNT(*) FROM messages WHERE ts IS NULL OR ts = ''").fetchone()[0]
     newest = max((r[3] for r in rows), default=0.0)
     until = float(until) if until is not None else newest
     wms = {r[0]: (r[1], r[2]) for r in rconn.execute(
@@ -127,6 +131,7 @@ def unread(conn, rconn, *, since=None, until=None, detail=False, channel=None) -
         "chats_with_watermark": len(wms),
         "chats_new": sum(1 for c in listed if c["new_chat"]),
         "messages": sum(c["count"] for c in listed),
+        "no_ts": no_ts,
         "chats": listed,
     }
 
@@ -164,7 +169,12 @@ def _print(r: dict, max_per_chat: int, partial: bool = False) -> None:
     lag = r["lag_minutes"]
     warn = "  ⚠ over 3h stale: run the build first, a zero may be a false negative" \
         if lag is not None and lag > 180 else ""
-    print(f"pipeline: newest message {fmt_ts(r['newest_ts'])}, {lag} min ago{warn}")
+    if lag is None:
+        print("pipeline: ⚠ no messages at all — run the build first")
+    else:
+        print(f"pipeline: newest message {fmt_ts(r['newest_ts'])}, {lag} min ago{warn}")
+    if r["no_ts"]:
+        print(f"⚠ {r['no_ts']} messages have no ts and fit no window — check them separately")
     print(f"conversations: {r['chats_total']} in archive, {r['chats_with_watermark']} with a "
           f"watermark; {len(r['chats'])} with new messages ({r['chats_new']} seen for the first "
           f"time); {r['messages']} new messages")

@@ -85,8 +85,10 @@ def test_ack_until_keeps_later_and_never_regresses(db):
     _add(db, "C1", "team", TS_0030 + 600, "arrived after unread")
     _ack(db, until)
     assert _run(db)["messages"] == 1
-    _ack(db, TS_0030 - 1)
-    assert _run(db)["messages"] == 1
+    # watermark sits at TS_0030; push it to +600, then an ack at +300 must not pull it back
+    _ack(db, TS_0030 + 600)
+    _ack(db, TS_0030 + 300)
+    assert _run(db)["messages"] == 0
 
 
 def test_late_arrival_flagged(db):
@@ -109,3 +111,17 @@ def test_cli_channel_filter_does_not_offer_ack(db, capsys):
     U.main(["--db", str(db), "--channel", "team"])
     out = capsys.readouterr().out
     assert "please send the forms" in out and "make ack" not in out
+
+
+def test_empty_db_and_missing_ts(tmp_path, capsys):
+    path = tmp_path / "search.db"
+    index.open_db(path).close()
+    U.main(["--db", str(path)])
+    assert "no messages at all" in capsys.readouterr().out
+    conn = index.open_db(path)
+    index._insert_message(conn, {"text": "x", "user_name": "u", "channel_name": "c", "ts": None,
+                                 "thread_ts": None, "channel_id": "C2", "user_id": "U1",
+                                 "kind": "channel"})
+    conn.commit()
+    conn.close()
+    assert _run(path)["no_ts"] == 1
