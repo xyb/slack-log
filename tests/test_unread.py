@@ -155,3 +155,13 @@ def test_ack_refuses_when_messages_imported_after_unread(db):
         conn.close()
         rc.close()
     assert _run(db)["messages"] == 2
+
+
+def test_detail_survives_malformed_ts(db, capsys):
+    _add(db, "C9", "odd", 0.0)  # placeholder row, then corrupt its ts
+    conn = sqlite3.connect(db)
+    conn.execute("UPDATE messages SET ts='not-a-ts' WHERE channel_id='C9'")
+    conn.commit()
+    conn.close()
+    U.main(["--db", str(db), "--detail"])
+    assert "not-a-ts" in capsys.readouterr().out

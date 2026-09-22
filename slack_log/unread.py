@@ -59,7 +59,10 @@ def date_to_epoch(s: str) -> float:
 
 
 def fmt_ts(ts) -> str:
-    return _dt.datetime.fromtimestamp(float(ts), TZ).strftime("%Y-%m-%d %H:%M")
+    try:
+        return _dt.datetime.fromtimestamp(float(ts), TZ).strftime("%Y-%m-%d %H:%M")
+    except (ValueError, TypeError):
+        return str(ts) or "?"  # malformed ts: show it raw rather than kill the listing
 
 
 def open_review(db_path) -> sqlite3.Connection:
